@@ -1,0 +1,19 @@
+# Editor / OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Rust
+target/
+Cargo.lock.bak
+
+# Local data
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.local
+
+# Logs
+*.log

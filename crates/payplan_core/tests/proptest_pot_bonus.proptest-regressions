@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 221baeca0dea1a5ee4fdaf0eeeeface81df5e65d58c26b17d53cb45e1958cbca # shrinks to pool_minor = 3570, config = RoyalPotBonusConfig { profit_share_percent: 41, top_cycler_percent: 0, top_cycler_weights: [40, 30, 20, 10] }, qualified_users = 18

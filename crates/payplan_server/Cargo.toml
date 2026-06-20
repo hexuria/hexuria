@@ -1,0 +1,20 @@
+[package]
+name = "payplan_server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "payplan-server"
+path = "src/main.rs"
+
+[dependencies]
+payplan_core = { path = "../payplan_core" }
+payplan_app = { path = "../payplan_app" }
+payplan_infra = { path = "../payplan_infra" }
+payplan_web = { path = "../payplan_web" }
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow.workspace = true
+axum.workspace = true

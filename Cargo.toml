@@ -1,0 +1,53 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/payplan_core",
+  "crates/payplan_app",
+  "crates/payplan_infra",
+  "crates/payplan_web",
+  "crates/payplan_server",
+]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "UNLICENSED"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v7", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "1"
+async-trait = "0.1"
+rust_decimal = { version = "1", features = ["serde-with-str", "db-postgres"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+tracing = "0.1"
+sqlx = { version = "0.8", default-features = false, features = [
+  "runtime-tokio-rustls",
+  "postgres",
+  "macros",
+  "chrono",
+  "uuid",
+  "rust_decimal",
+  "json",
+  "migrate",
+] }
+argon2 = "0.5"
+rand = "0.8"
+jsonwebtoken = "9"
+pretty_assertions = "1"
+proptest = "1"
+rstest = "0.23"
+anyhow = "1"
+axum = "0.7"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace"] }
+
+[profile.dev]
+opt-level = 0
+debug = 1
+
+[profile.release]
+opt-level = 3
+lto = "thin"

@@ -1,0 +1,33 @@
+[package]
+name = "payplan_infra"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+integration = []
+
+[dependencies]
+payplan_core = { path = "../payplan_core", features = ["sqlx"] }
+payplan_app = { path = "../payplan_app" }
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+rust_decimal.workspace = true
+sqlx.workspace = true
+argon2.workspace = true
+rand.workspace = true
+jsonwebtoken.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+rstest.workspace = true
+anyhow.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+rust_decimal_macros = "1"
