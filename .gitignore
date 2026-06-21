@@ -18,3 +18,5 @@ Cargo.lock.bak
 # Logs
 *.log
 *.lock
+*.md
+!README.md
