@@ -270,11 +270,9 @@ impl EventProjector for PgEventProjector {
         for event in events {
             match event.event_type {
                 EventType::RoyalAccountDuplicated => project_duplication(event, conn).await?,
-                EventType::BinaryPairMatched => {
-                    project_pairing_result(event, events, conn).await?
-                }
+                EventType::BinaryPairMatched => project_pairing_result(event, events, conn).await?,
                 EventType::BinaryCycleClosed => advance_cycle_count(event, conn).await?,
-                EventType::RoyalPotBonusDistributed => {
+                EventType::RoyalPotBonusSettled => {
                     project_pot_bonus_balances(event, conn).await?
                 }
                 _ => {}
@@ -293,6 +291,15 @@ fn uuid_field(payload: &serde_json::Value, key: &str) -> Option<uuid::Uuid> {
 
 fn i64_field(payload: &serde_json::Value, key: &str) -> Option<i64> {
     payload.get(key).and_then(|v| v.as_i64())
+}
+
+fn decimal_field(payload: &serde_json::Value, key: &str) -> rust_decimal::Decimal {
+    payload
+        .get(key)
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+        .or_else(|| payload.get(key).and_then(|v| v.as_i64()).map(rust_decimal::Decimal::from))
+        .unwrap_or(rust_decimal::Decimal::ZERO)
 }
 
 /// B1: On `RoyalAccountDuplicated`, create a new enrollment and seed a new
@@ -384,9 +391,7 @@ async fn project_pairing_result(
         return Ok(());
     };
     let Some(node_id) = uuid_field(&event.payload, "node_id") else {
-        warn!(
-            "BinaryPairMatched: missing node_id, skipping (operations.rs should populate it)"
-        );
+        warn!("BinaryPairMatched: missing node_id, skipping (operations.rs should populate it)");
         return Ok(());
     };
     let Some(period_id) = uuid_field(&event.payload, "period_id") else {
@@ -398,32 +403,15 @@ async fn project_pairing_result(
     let matched = i64_field(&event.payload, "matched").unwrap_or(0);
 
     // Recover the companion commission event + ledger entry id (if any).
-    let commission_amount: i64;
-    let ledger_entry_id: Option<uuid::Uuid>;
     let commission_event = all_events.iter().find(|e| {
         e.event_type == EventType::BinaryCommissionEarned
             && uuid_field(&e.payload, "node_user_id") == Some(node_user_id)
     });
-    match commission_event {
-        Some(ce) => {
-            let amount_str = ce
-                .payload
-                .get("amount")
-                .and_then(|v| v.as_str())
-                .unwrap_or("0");
-            let amount_dec: rust_decimal::Decimal = amount_str
-                .parse()
-                .map_err(|e| AppError::Infra(format!("parse commission amount: {e}")))?;
-            // Schema stores BIGINT (minor units). The Decimal is already
-            // expressed in minor units by the pairing module.
-            commission_amount = amount_dec.try_into().unwrap_or(0);
-            ledger_entry_id = None; // ledger entry id not carried in event payload
-        }
-        None => {
-            commission_amount = 0;
-            ledger_entry_id = None;
-        }
-    }
+    let commission_amount: rust_decimal::Decimal = match commission_event {
+        Some(ce) => decimal_field(&ce.payload, "amount"),
+        None => rust_decimal::Decimal::ZERO,
+    };
+    let ledger_entry_id: Option<uuid::Uuid> = None;
 
     sqlx::query(
         r#"INSERT INTO binary_pairing_results
@@ -497,16 +485,20 @@ async fn advance_cycle_count(event: &DomainEvent, conn: &mut PgConnection) -> Ap
     Ok(())
 }
 
-/// B4: On `RoyalPotBonusDistributed`, upsert per-user cumulative balances from
+/// B4: On `RoyalPotBonusSettled`, upsert per-user cumulative balances from
 /// the `distributions` array the pot bonus module adds to the event payload.
 /// Events without the array (older shape) are skipped. Each entry is a
 /// cumulative upsert — totals accumulate across distributions.
 async fn project_pot_bonus_balances(event: &DomainEvent, conn: &mut PgConnection) -> AppResult<()> {
     let Some(company_id) = event.company_id else {
-        warn!("RoyalPotBonusDistributed: missing company_id, skipping balance projection");
+        warn!("RoyalPotBonusSettled: missing company_id, skipping balance projection");
         return Ok(());
     };
-    let Some(distributions) = event.payload.get("distributions").and_then(|v| v.as_array()) else {
+    let Some(distributions) = event
+        .payload
+        .get("distributions")
+        .and_then(|v| v.as_array())
+    else {
         // Back-compat: older events (or the empty trigger payload from
         // run_royal_pot_distribution) carry no per-user breakdown.
         return Ok(());
@@ -517,13 +509,13 @@ async fn project_pot_bonus_balances(event: &DomainEvent, conn: &mut PgConnection
 
     for dist in distributions {
         let Some(user_id) = uuid_field(dist, "user_id") else {
-            warn!(
-                "RoyalPotBonusDistributed: distribution entry missing user_id, skipping entry"
-            );
+            warn!("RoyalPotBonusSettled: distribution entry missing user_id, skipping entry");
             continue;
         };
-        let profit_share = i64_field(dist, "profit_share").unwrap_or(0).max(0);
-        let top_cycler = i64_field(dist, "top_cycler").unwrap_or(0).max(0);
+        // Amounts are exact Decimals carried as strings (Task 11); columns are
+        // NUMERIC, so no truncation. Clamp negatives to zero defensively.
+        let profit_share = decimal_field(dist, "profit_share").max(rust_decimal::Decimal::ZERO);
+        let top_cycler = decimal_field(dist, "top_cycler").max(rust_decimal::Decimal::ZERO);
         let total = profit_share + top_cycler;
 
         sqlx::query(

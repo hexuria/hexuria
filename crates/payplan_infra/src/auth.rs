@@ -84,20 +84,32 @@ const ACCESS_TTL_SECS: i64 = 15 * 60;
 /// Refresh token lifetime: 7 days.
 const REFRESH_TTL_SECS: i64 = 7 * 24 * 60 * 60;
 
+/// Issuer claim for all tokens issued by this service.
+const JWT_ISSUER: &str = "payplan";
+/// Audience claim for all tokens.
+const JWT_AUDIENCE: &str = "payplan";
+
 /// HS256 JWT signer/verifier. Stateless apart from the shared secret.
 pub struct JwtService {
     encode_key: EncodingKey,
     decode_key: DecodingKey,
     header: Header,
+    validation: Validation,
 }
 
 impl JwtService {
     #[must_use]
     pub fn new(secret: &str) -> Self {
+        let mut validation = Validation::new(Algorithm::HS256);
+        validation.set_audience(&[JWT_AUDIENCE]);
+        validation.set_issuer(&[JWT_ISSUER]);
+        validation.set_required_spec_claims(&["exp", "iat", "sub", "aud", "iss"]);
+        validation.leeway = 5;
         Self {
             encode_key: EncodingKey::from_secret(secret.as_bytes()),
             decode_key: DecodingKey::from_secret(secret.as_bytes()),
             header: Header::new(Algorithm::HS256),
+            validation,
         }
     }
 
@@ -116,6 +128,8 @@ impl JwtService {
             role: role.to_string(),
             jti: uuid::Uuid::now_v7().to_string(),
             kind,
+            iss: JWT_ISSUER.to_string(),
+            aud: JWT_AUDIENCE.to_string(),
             exp: usize::try_from(now + ttl_secs).unwrap_or(usize::MAX),
             iat: usize::try_from(now).unwrap_or(0),
         }
@@ -148,8 +162,9 @@ impl TokenService for JwtService {
     }
 
     fn verify(&self, token: &str, expected_kind: TokenKind) -> AppResult<TokenClaims> {
-        let data = decode::<TokenClaims>(token, &self.decode_key, &Validation::new(Algorithm::HS256))
-            .map_err(|e| AppError::Infra(format!("jwt verify: {e}")))?;
+        let data =
+            decode::<TokenClaims>(token, &self.decode_key, &self.validation)
+                .map_err(|e| AppError::Infra(format!("jwt verify: {e}")))?;
         if data.claims.kind != expected_kind {
             return Err(AppError::Infra(format!(
                 "jwt kind mismatch: expected {:?}, got {:?}",
@@ -186,8 +201,8 @@ impl RevokedJtiStore for PgRevokedJtiStore {
         kind: TokenKind,
         expires_at: DateTime<Utc>,
         conn: &mut PgConnection,
-    ) -> AppResult<()> {
-        sqlx::query(
+    ) -> AppResult<bool> {
+        let result = sqlx::query(
             r#"INSERT INTO revoked_jti (jti, user_id, token_type, expires_at)
                VALUES ($1, $2, $3, $4)
                ON CONFLICT (jti) DO NOTHING"#,
@@ -199,15 +214,16 @@ impl RevokedJtiStore for PgRevokedJtiStore {
         .execute(&mut *conn)
         .await
         .map_err(|e| AppError::Infra(format!("revoke jti: {e}")))?;
-        Ok(())
+        Ok(result.rows_affected() == 1)
     }
 
     async fn is_revoked(&self, jti: &str, conn: &mut PgConnection) -> AppResult<bool> {
-        let row: (bool,) = sqlx::query_as(r#"SELECT EXISTS(SELECT 1 FROM revoked_jti WHERE jti = $1)"#)
-            .bind(jti)
-            .fetch_one(conn)
-            .await
-            .map_err(|e| AppError::Infra(format!("is_revoked jti: {e}")))?;
+        let row: (bool,) =
+            sqlx::query_as(r#"SELECT EXISTS(SELECT 1 FROM revoked_jti WHERE jti = $1)"#)
+                .bind(jti)
+                .fetch_one(conn)
+                .await
+                .map_err(|e| AppError::Infra(format!("is_revoked jti: {e}")))?;
         Ok(row.0)
     }
 }

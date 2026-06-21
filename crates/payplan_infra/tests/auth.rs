@@ -30,12 +30,10 @@ async fn pool() -> PgPool {
 /// Truncate every table touched by these tests, including `revoked_jti` and
 /// its FK targets (`users`, `companies`). CASCADE ensures dependent rows go.
 async fn truncate_all(pool: &PgPool) {
-    sqlx::query(
-        "TRUNCATE TABLE revoked_jti, users, companies RESTART IDENTITY CASCADE",
-    )
-    .execute(pool)
-    .await
-    .unwrap();
+    sqlx::query("TRUNCATE TABLE revoked_jti, users, companies RESTART IDENTITY CASCADE")
+        .execute(pool)
+        .await
+        .unwrap();
 }
 
 /// Seed a company + user so `revoked_jti.user_id` has a valid FK target.

@@ -550,6 +550,30 @@ mod tests {
     }
 
     #[test]
+    fn purchase_validate_rejects_negative_gross() {
+        // Task 4: the purchase path calls `purchase.validate()` before
+        // persisting. A negative gross must be rejected by that guard (the
+        // commands path builds the Purchase as a struct literal, so this
+        // `validate()` call is the only thing standing between a tampered
+        // amount and the ledger).
+        let p = Purchase::new(
+            CompanyId::new(),
+            UserId::new(),
+            PackageId::new(),
+            Money::new(rust_decimal_macros::dec!(10), "USD"),
+            None,
+        )
+        .unwrap();
+        let mut bad = p.clone();
+        bad.gross = Money::new(rust_decimal_macros::dec!(-1), "USD");
+        bad.net = Money::new(rust_decimal_macros::dec!(-1), "USD");
+        assert!(
+            bad.validate().is_err(),
+            "negative gross must fail validation"
+        );
+    }
+
+    #[test]
     fn package_item_zero_quantity_is_invalid() {
         let pkg = Package::new(
             CompanyId::new(),

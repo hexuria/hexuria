@@ -37,8 +37,8 @@ use tracing::info;
 
 use crate::error::{AppError, AppResult};
 use crate::ports::{
-    CatalogRepo, EnrollmentRepo, EntitlementRepo, EventStore, ModuleStateStore, PackageRepo,
-    PayPlanStackRepo, PurchaseRepo, PurchaseWriter, RewardLedgerStore, SubscriptionRepo,
+    CatalogRepo, EnrollmentRepo, EntitlementRepo, EventStore, PackageRepo, PayPlanStackRepo,
+    PurchaseRepo, PurchaseWriter, RewardLedgerStore, SubscriptionRepo,
 };
 
 pub struct CreateCatalogItemCommand {
@@ -81,8 +81,6 @@ pub struct PurchasePackageCommand {
     pub user_id: UserId,
     pub package_id: PackageId,
     pub sponsor_user_id: Option<UserId>,
-    pub payment_currency: String,
-    pub gross_amount: rust_decimal::Decimal,
 }
 
 /// Default module registry with every built-in module registered.
@@ -127,7 +125,10 @@ pub async fn handle_create_catalog_item(
     item.description = cmd.description;
     item.sku = cmd.sku;
     item.validate().map_err(AppError::from)?;
-    let mut conn = pool.acquire().await.map_err(|e| AppError::Infra(e.to_string()))?;
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|e| AppError::Infra(e.to_string()))?;
     repo.insert_item(&item, &mut conn).await?;
     Ok(item)
 }
@@ -143,7 +144,10 @@ pub async fn handle_create_package(
     package.pay_plan_stack_id = cmd.pay_plan_stack_id;
     package.status = PackageStatus::Active;
     package.validate().map_err(AppError::from)?;
-    let mut conn = pool.acquire().await.map_err(|e| AppError::Infra(e.to_string()))?;
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|e| AppError::Infra(e.to_string()))?;
     repo.insert(&package, &mut conn).await?;
     Ok(package)
 }
@@ -156,7 +160,10 @@ pub async fn handle_create_company(
     let company = payplan_core::platform::company::Company::new(cmd.name, cmd.slug)
         .map_err(AppError::from)?;
     company.validate().map_err(AppError::from)?;
-    let mut conn = pool.acquire().await.map_err(|e| AppError::Infra(e.to_string()))?;
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|e| AppError::Infra(e.to_string()))?;
     repo.insert(&company, &mut conn).await?;
     Ok(company)
 }
@@ -173,7 +180,10 @@ pub async fn handle_register_user(
             .map_err(AppError::from)?;
     user.email_verified = false;
     user.validate().map_err(AppError::from)?;
-    let mut conn = pool.acquire().await.map_err(|e| AppError::Infra(e.to_string()))?;
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|e| AppError::Infra(e.to_string()))?;
     users.insert(&user, &mut conn).await?;
     Ok(user)
 }
@@ -191,7 +201,10 @@ pub async fn handle_create_billing_plan(
     )
     .map_err(AppError::from)?;
     plan.validate().map_err(AppError::from)?;
-    let mut conn = pool.acquire().await.map_err(|e| AppError::Infra(e.to_string()))?;
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|e| AppError::Infra(e.to_string()))?;
     repo.insert_billing_plan(&plan, &mut conn).await?;
     Ok(plan)
 }
@@ -229,6 +242,18 @@ pub async fn handle_purchase_package(
     if !matches!(package.status, PackageStatus::Active) {
         return Err(AppError::Conflict(format!(
             "package {} is not active",
+            cmd.package_id
+        )));
+    }
+
+    // Tenant isolation (IDOR guard — REMEDIATION_PLAN Task 6): the loaded
+    // package is the source of truth for the owning company. A client-supplied
+    // `company_id` that doesn't match the package's own company is rejected so a
+    // caller can't attribute a purchase (and its downstream commission/volume
+    // events) to another tenant.
+    if package.company_id != cmd.company_id {
+        return Err(AppError::Forbidden(format!(
+            "package {} belongs to a different company",
             cmd.package_id
         )));
     }
@@ -279,7 +304,10 @@ pub async fn handle_purchase_package(
         })
         .collect();
 
-    let gross = Money::new(cmd.gross_amount, cmd.payment_currency.clone());
+    // Price is authoritative from the billing plans — never trusted from the
+    // client. Sum each plan's price × the item's quantity. All plans in a
+    // package must share a currency.
+    let gross = compute_package_price(&package, &billing_plans)?;
     let net = gross.clone();
     let purchase = Purchase {
         id: PurchaseId::new(),
@@ -292,6 +320,8 @@ pub async fn handle_purchase_package(
         status: PurchaseStatus::Paid,
         purchased_at: now,
     };
+    // Guard the aggregate invariants (non-negative amounts, currency match).
+    purchase.validate().map_err(AppError::from)?;
 
     let enrollment = Enrollment {
         id: EnrollmentId::new(),
@@ -305,8 +335,11 @@ pub async fn handle_purchase_package(
     };
 
     // Build the event list for the engine.
-    let package_points: u32 = package.items.iter().map(|i| i.points_value).sum();
-    let package_volume: u32 = package.items.iter().map(|i| i.commissionable_volume).sum();
+    // Volume/points must match the renewal path's SQL semantics
+    // (`SUM(commissionable_volume * quantity) FILTER (WHERE is_commissionable)`,
+    // see operations.rs::load_package_renewal_shape): only commissionable items
+    // count, each scaled by quantity (Task 9).
+    let (package_points, package_volume) = package_commissionable_totals(&package.items);
 
     let mut emitted: Vec<DomainEvent> = vec![
         domain_event(
@@ -348,15 +381,27 @@ pub async fn handle_purchase_package(
             .ok_or_else(|| AppError::NotFound(format!("pay plan stack {stack_id} not found")))?;
         let runner = StackRunner::new((*deps.registry).clone());
 
-        // Pre-load existing module state for this enrollment's aggregate so
-        // modules like Flushline and Binary tree see prior progress.
+        // Pre-load existing module state so modules see prior progress. State
+        // is keyed per-aggregate: enrollment-scoped modules (e.g. Flushline)
+        // under the enrollment id, company-scoped modules (binary tree/
+        // carryover, royal pot) under the company id. We seed both namespaces;
+        // the runner picks the right one per module via `Module::scope()`.
         let mut state_cache = StateCache::new();
         if let Some(store) = deps.module_state_store {
-            let existing = store
-                .load_for_aggregate(enrollment.id.0, &mut conn)
-                .await?;
-            for ((module_key, module_version), value) in &existing {
+            let by_enrollment = store.load_for_aggregate(enrollment.id.0, &mut conn).await?;
+            for ((module_key, module_version), value) in &by_enrollment {
                 state_cache.put(module_key, module_version, enrollment.id.0, value.clone());
+            }
+            let by_company = store
+                .load_for_aggregate(enrollment.company_id.0, &mut conn)
+                .await?;
+            for ((module_key, module_version), value) in &by_company {
+                state_cache.put(
+                    module_key,
+                    module_version,
+                    enrollment.company_id.0,
+                    value.clone(),
+                );
             }
         }
 
@@ -382,10 +427,10 @@ pub async fn handle_purchase_package(
             enrollment: &enrollment,
             events: &emitted,
             ledger: &ledger,
-        module_state_changes: &state_changes,
-        projector: deps.projector,
-        event_projector: deps.event_projector,
-    };
+            module_state_changes: &state_changes,
+            projector: deps.projector,
+            event_projector: deps.event_projector,
+        };
         writer.write(writes).await?;
     } else {
         // Non-atomic fallback (used by in-memory tests).
@@ -462,6 +507,53 @@ fn validate_package_items(package: &Package, billing_plans: &[BillingPlan]) -> A
         }
     }
     Ok(())
+}
+
+/// Compute the authoritative package price from its billing plans. Each plan's
+/// price is multiplied by the corresponding item's `quantity` and summed. All
+/// plans must share a currency; a mixed-currency package is rejected. This is
+/// the server-side source of truth — the purchase amount is never accepted from
+/// the client.
+fn compute_package_price(package: &Package, billing_plans: &[BillingPlan]) -> AppResult<Money> {
+    // `validate_package_items` (called earlier) already guarantees
+    // `package.items.len() == billing_plans.len()` and non-zero quantities.
+    let currency = billing_plans
+        .first()
+        .map(|p| p.price.currency.clone())
+        .ok_or_else(|| AppError::Validation("package has no billing plans".into()))?;
+
+    let mut total = rust_decimal::Decimal::ZERO;
+    for (item, plan) in package.items.iter().zip(billing_plans.iter()) {
+        if plan.price.currency != currency {
+            return Err(AppError::Validation(format!(
+                "package mixes currencies ({} vs {}); all billing plans must share one currency",
+                currency, plan.price.currency
+            )));
+        }
+        total += plan.price.amount * rust_decimal::Decimal::from(item.quantity);
+    }
+    Ok(Money::new(total, currency))
+}
+
+/// Sum a package's commissionable volume and points, each scaled by the item's
+/// quantity, counting only `is_commissionable` items. Mirrors the renewal SQL
+/// (`SUM(... * quantity) FILTER (WHERE is_commissionable)`) so a purchase and a
+/// later renewal of the same package credit identical volume/points (Task 9).
+/// Computed in `u64` and saturated to `u32::MAX` to avoid overflow.
+fn package_commissionable_totals(
+    items: &[payplan_core::platform::package::PackageItem],
+) -> (u32, u32) {
+    let sum_scaled = |field: fn(&payplan_core::platform::package::PackageItem) -> u32| -> u32 {
+        items
+            .iter()
+            .filter(|i| i.is_commissionable)
+            .map(|i| u64::from(field(i)) * u64::from(i.quantity))
+            .sum::<u64>()
+            .min(u64::from(u32::MAX)) as u32
+    };
+    let points = sum_scaled(|i| i.points_value);
+    let volume = sum_scaled(|i| i.commissionable_volume);
+    (points, volume)
 }
 
 async fn load_billing_plans(
@@ -575,3 +667,44 @@ pub struct PurchaseOutcome {
 // Suppress unused import noise for traits we don't directly reference.
 #[allow(dead_code)]
 const _BILLING_PLAN_ID_TYPE: Option<BillingPlanId> = None;
+
+#[cfg(test)]
+mod tests {
+    use super::package_commissionable_totals;
+    use payplan_core::platform::package::{PackageItem, PackageItemRole};
+    use payplan_core::shared::ids::{BillingPlanId, CatalogItemId};
+
+    fn item(qty: u32, commissionable: bool, volume: u32, points: u32) -> PackageItem {
+        PackageItem {
+            catalog_item_id: CatalogItemId::new(),
+            billing_plan_id: BillingPlanId::new(),
+            quantity: qty,
+            role: PackageItemRole::Included,
+            is_commissionable: commissionable,
+            commissionable_volume: volume,
+            points_value: points,
+        }
+    }
+
+    /// Task 9: a commissionable item (qty 2, volume 10, points 5) plus a
+    /// non-commissionable item must credit volume = 2×10 = 20 and points =
+    /// 2×5 = 10 — the non-commissionable item contributes nothing.
+    #[test]
+    fn totals_scale_by_quantity_and_skip_non_commissionable() {
+        let items = vec![
+            item(2, true, 10, 5),
+            item(3, false, 100, 100), // ignored: not commissionable
+        ];
+        let (points, volume) = package_commissionable_totals(&items);
+        assert_eq!(volume, 20, "volume = 2 × 10, non-commissionable excluded");
+        assert_eq!(points, 10, "points = 2 × 5, non-commissionable excluded");
+    }
+
+    #[test]
+    fn totals_saturate_instead_of_overflowing() {
+        // qty × volume would overflow u32; result saturates to u32::MAX.
+        let items = vec![item(u32::MAX, true, u32::MAX, 0)];
+        let (_points, volume) = package_commissionable_totals(&items);
+        assert_eq!(volume, u32::MAX, "saturates rather than panicking");
+    }
+}

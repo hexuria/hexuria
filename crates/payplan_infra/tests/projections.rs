@@ -248,18 +248,24 @@ async fn binary_nodes_project_with_keys() {
             .unwrap();
     assert_eq!(count, 2, "both nodes projected");
 
-    let child = sqlx::query(
-        "SELECT parent_node_id, leg FROM binary_nodes WHERE id = $1",
-    )
-    .bind(child_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let child = sqlx::query("SELECT parent_node_id, leg FROM binary_nodes WHERE id = $1")
+        .bind(child_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(
-        child.try_get::<Option<BinaryNodeId>, _>("parent_node_id").unwrap(),
+        child
+            .try_get::<Option<BinaryNodeId>, _>("parent_node_id")
+            .unwrap(),
         Some(root_id)
     );
-    assert_eq!(child.try_get::<Option<String>, _>("leg").unwrap().as_deref(), Some("left"));
+    assert_eq!(
+        child
+            .try_get::<Option<String>, _>("leg")
+            .unwrap()
+            .as_deref(),
+        Some("left")
+    );
 
     // Re-project: idempotent.
     let mut conn = pool.acquire().await.unwrap();
@@ -380,13 +386,12 @@ async fn binary_volume_projects_when_node_linked() {
         .expect("project volume");
     drop(conn);
 
-    let row = sqlx::query(
-        "SELECT node_id, leg, volume, status FROM binary_volume_ledger WHERE id = $1",
-    )
-    .bind(entry_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let row =
+        sqlx::query("SELECT node_id, leg, volume, status FROM binary_volume_ledger WHERE id = $1")
+            .bind(entry_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(row.try_get::<BinaryNodeId, _>("node_id").unwrap(), node_id);
     assert_eq!(row.try_get::<String, _>("leg").unwrap(), "right");
     assert_eq!(row.try_get::<i64, _>("volume").unwrap(), 250);
@@ -539,13 +544,12 @@ async fn duplication_creates_enrollment_and_flushline_account() {
     let projector = PgEventProjector::new();
 
     // Look up the seeded package so the placeholder purchase FK holds.
-    let package_id: uuid::Uuid = sqlx::query_scalar(
-        "SELECT package_id FROM enrollments WHERE id = $1",
-    )
-    .bind(source_enrollment_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let package_id: uuid::Uuid =
+        sqlx::query_scalar("SELECT package_id FROM enrollments WHERE id = $1")
+            .bind(source_enrollment_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
 
     // The duplication module emits this payload when a user has both
     // graduated AND matrix-cycled. new_royal_account_id is pre-generated.
@@ -572,13 +576,12 @@ async fn duplication_creates_enrollment_and_flushline_account() {
     drop(conn);
 
     // A new enrollment row was created for the duplicated account.
-    let new_enrollment_id: uuid::Uuid = sqlx::query_scalar(
-        "SELECT enrollment_id FROM royal_flushline_accounts WHERE id = $1",
-    )
-    .bind(new_account_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let new_enrollment_id: uuid::Uuid =
+        sqlx::query_scalar("SELECT enrollment_id FROM royal_flushline_accounts WHERE id = $1")
+            .bind(new_account_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     let enrollment_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM enrollments WHERE id = $1 AND user_id = $2 AND status = 'active'",
     )
@@ -625,11 +628,10 @@ async fn duplication_without_company_id_is_skipped() {
         .expect("skips gracefully");
     drop(conn);
 
-    let count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM royal_flushline_accounts")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM royal_flushline_accounts")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(count, 0, "no row materialised from malformed event");
 }
 
@@ -641,13 +643,7 @@ async fn duplication_without_company_id_is_skipped() {
 /// Returns (company_id, user_id, enrollment_id, node_id, period_id).
 async fn seed_binary_cycle(
     pool: &PgPool,
-) -> (
-    CompanyId,
-    UserId,
-    EnrollmentId,
-    BinaryNodeId,
-    uuid::Uuid,
-) {
+) -> (CompanyId, UserId, EnrollmentId, BinaryNodeId, uuid::Uuid) {
     let (company_id, user_id, enrollment_id) = seed_fks(pool).await;
 
     // Open cycle period.
@@ -694,16 +690,14 @@ async fn seed_binary_cycle(
 async fn cycle_closed_advances_node_cycle_count() {
     let pool = pool().await;
     truncate_all(&pool).await;
-    let (company_id, user_id, _enrollment_id, node_id, _period_id) =
-        seed_binary_cycle(&pool).await;
+    let (company_id, user_id, _enrollment_id, node_id, _period_id) = seed_binary_cycle(&pool).await;
     let projector = PgEventProjector::new();
 
-    let before: i32 =
-        sqlx::query_scalar("SELECT cycle_count FROM binary_nodes WHERE id = $1")
-            .bind(node_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let before: i32 = sqlx::query_scalar("SELECT cycle_count FROM binary_nodes WHERE id = $1")
+        .bind(node_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(before, 0);
 
     // Emit BinaryCycleClosed with node_id (as close_binary_cycles now does).
@@ -725,12 +719,11 @@ async fn cycle_closed_advances_node_cycle_count() {
         .expect("project cycle closed");
     drop(conn);
 
-    let after: i32 =
-        sqlx::query_scalar("SELECT cycle_count FROM binary_nodes WHERE id = $1")
-            .bind(node_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let after: i32 = sqlx::query_scalar("SELECT cycle_count FROM binary_nodes WHERE id = $1")
+        .bind(node_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(after, 1, "cycle_count advanced to 1");
 
     // Second cycle close bumps it again.
@@ -740,12 +733,11 @@ async fn cycle_closed_advances_node_cycle_count() {
         .await
         .expect("project cycle closed again");
     drop(conn);
-    let after2: i32 =
-        sqlx::query_scalar("SELECT cycle_count FROM binary_nodes WHERE id = $1")
-            .bind(node_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let after2: i32 = sqlx::query_scalar("SELECT cycle_count FROM binary_nodes WHERE id = $1")
+        .bind(node_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(after2, 2, "cycle_count advanced to 2");
 }
 
@@ -753,8 +745,7 @@ async fn cycle_closed_advances_node_cycle_count() {
 async fn pair_matched_inserts_pairing_result() {
     let pool = pool().await;
     truncate_all(&pool).await;
-    let (company_id, user_id, _enrollment_id, node_id, period_id) =
-        seed_binary_cycle(&pool).await;
+    let (company_id, user_id, _enrollment_id, node_id, period_id) = seed_binary_cycle(&pool).await;
     let projector = PgEventProjector::new();
 
     // A batch of two events: the BinaryPairMatched (with node_id + period_id)
@@ -804,7 +795,10 @@ async fn pair_matched_inserts_pairing_result() {
     assert_eq!(row.try_get::<i64, _>("left_volume").unwrap(), 100);
     assert_eq!(row.try_get::<i64, _>("right_volume").unwrap(), 100);
     assert_eq!(row.try_get::<i64, _>("matched_volume").unwrap(), 100);
-    assert_eq!(row.try_get::<i64, _>("commission_amount").unwrap(), 10);
+    assert_eq!(
+        row.try_get::<rust_decimal::Decimal, _>("commission_amount").unwrap(),
+        rust_decimal::Decimal::from(10)
+    );
     assert_eq!(row.try_get::<UserId, _>("user_id").unwrap(), user_id);
     assert_eq!(row.try_get::<BinaryNodeId, _>("node_id").unwrap(), node_id);
 
@@ -827,8 +821,7 @@ async fn pair_matched_inserts_pairing_result() {
 async fn pair_matched_without_commission_event_records_zero() {
     let pool = pool().await;
     truncate_all(&pool).await;
-    let (company_id, user_id, _enrollment_id, node_id, period_id) =
-        seed_binary_cycle(&pool).await;
+    let (company_id, user_id, _enrollment_id, node_id, period_id) = seed_binary_cycle(&pool).await;
     let projector = PgEventProjector::new();
 
     // PairMatched with no companion CommissionEarned (zero match → no commission).
@@ -854,7 +847,7 @@ async fn pair_matched_without_commission_event_records_zero() {
         .expect("project pairing without commission");
     drop(conn);
 
-    let commission_amount: i64 = sqlx::query_scalar(
+    let commission_amount: rust_decimal::Decimal = sqlx::query_scalar(
         "SELECT commission_amount FROM binary_pairing_results WHERE period_id = $1 AND node_id = $2",
     )
     .bind(period_id)
@@ -862,7 +855,7 @@ async fn pair_matched_without_commission_event_records_zero() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(commission_amount, 0, "no commission event → 0 amount");
+    assert_eq!(commission_amount, rust_decimal::Decimal::ZERO, "no commission event → 0 amount");
 }
 
 // ===========================================================================
@@ -915,17 +908,15 @@ fn build_renewal_deps(pool: &PgPool) -> RenewalDeps {
 
     RenewalDeps {
         events: std::sync::Arc::new(PgEventStore::new(pool.clone())),
-        ledger: std::sync::Arc::new(PgLedgerStore::new(pool.clone())),
-        catalog: ar::PgCatalogRepo::new(pool.clone()),
-        enrollments: ar::PgEnrollmentRepo::new(pool.clone()),
-        packages: ar::PgPackageRepo::new(pool.clone()),
-        pay_plan_stacks: ar::PgPayPlanStackRepo::new(pool.clone()),
-        purchases: std::sync::Arc::new(ar::PgPurchaseRepo::new(pool.clone())),
-        subs: std::sync::Arc::new(ar::PgSubscriptionRepo::new(pool.clone())),
-        ents: std::sync::Arc::new(ar::PgEntitlementRepo::new(pool.clone())),
-        registry: std::sync::Arc::new(
-            payplan_core::payplan::registry::ModuleRegistry::new(),
-        ),
+        ledger: std::sync::Arc::new(PgLedgerStore::new()),
+        catalog: ar::PgCatalogRepo::new(),
+        enrollments: ar::PgEnrollmentRepo::new(),
+        packages: ar::PgPackageRepo::new(),
+        pay_plan_stacks: ar::PgPayPlanStackRepo::new(),
+        purchases: std::sync::Arc::new(ar::PgPurchaseRepo::new()),
+        subs: std::sync::Arc::new(ar::PgSubscriptionRepo::new()),
+        ents: std::sync::Arc::new(ar::PgEntitlementRepo::new()),
+        registry: std::sync::Arc::new(payplan_core::payplan::registry::ModuleRegistry::new()),
     }
 }
 
@@ -936,13 +927,12 @@ async fn renewal_resolves_node_id_and_reads_recurrence_interval() {
     let pool = pool().await;
     truncate_all(&pool).await;
     let (company_id, user_id, enrollment_id) = seed_fks(&pool).await;
-    let package_id: uuid::Uuid = sqlx::query_scalar(
-        "SELECT package_id FROM enrollments WHERE id = $1",
-    )
-    .bind(enrollment_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let package_id: uuid::Uuid =
+        sqlx::query_scalar("SELECT package_id FROM enrollments WHERE id = $1")
+            .bind(enrollment_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
 
     // Recurring monthly billing plan.
     let item_id = payplan_core::shared::ids::CatalogItemId::new();
@@ -1034,7 +1024,10 @@ async fn renewal_resolves_node_id_and_reads_recurrence_interval() {
     .await
     .unwrap();
     assert_eq!(
-        payload.get("node_id").and_then(|v| v.as_str()).map(String::from),
+        payload
+            .get("node_id")
+            .and_then(|v| v.as_str())
+            .map(String::from),
         Some(node_id.to_string()),
         "renewal event payload includes node_id"
     );
@@ -1050,13 +1043,12 @@ async fn renewal_resolves_node_id_and_reads_recurrence_interval() {
     );
 
     // current_period_end was advanced by the monthly interval (> now).
-    let new_end: chrono::DateTime<chrono::Utc> = sqlx::query_scalar(
-        "SELECT current_period_end FROM subscriptions WHERE id = $1",
-    )
-    .bind(sub_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let new_end: chrono::DateTime<chrono::Utc> =
+        sqlx::query_scalar("SELECT current_period_end FROM subscriptions WHERE id = $1")
+            .bind(sub_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert!(
         new_end > chrono::Utc::now(),
         "current_period_end advanced past now (monthly interval)"
@@ -1070,13 +1062,12 @@ async fn renewal_excludes_one_time_billing_plans() {
     let pool = pool().await;
     truncate_all(&pool).await;
     let (company_id, user_id, enrollment_id) = seed_fks(&pool).await;
-    let package_id: uuid::Uuid = sqlx::query_scalar(
-        "SELECT package_id FROM enrollments WHERE id = $1",
-    )
-    .bind(enrollment_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let package_id: uuid::Uuid =
+        sqlx::query_scalar("SELECT package_id FROM enrollments WHERE id = $1")
+            .bind(enrollment_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
 
     // One-time billing plan — should NOT be renewed.
     let item_id = payplan_core::shared::ids::CatalogItemId::new();
@@ -1145,7 +1136,7 @@ async fn pot_bonus_distribution_updates_balances() {
     let event = DomainEvent {
         id: EventId::new(),
         company_id: Some(company_id),
-        event_type: EventType::RoyalPotBonusDistributed,
+        event_type: EventType::RoyalPotBonusSettled,
         payload: json!({
             "pool": "1000",
             "qualified_count": 2,
@@ -1174,9 +1165,9 @@ async fn pot_bonus_distribution_updates_balances() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(row_a.try_get::<i64, _>("total_earned").unwrap(), 475);
-    assert_eq!(row_a.try_get::<i64, _>("profit_share_earned").unwrap(), 375);
-    assert_eq!(row_a.try_get::<i64, _>("top_cycler_earned").unwrap(), 100);
+    assert_eq!(row_a.try_get::<rust_decimal::Decimal, _>("total_earned").unwrap(), rust_decimal::Decimal::from(475));
+    assert_eq!(row_a.try_get::<rust_decimal::Decimal, _>("profit_share_earned").unwrap(), rust_decimal::Decimal::from(375));
+    assert_eq!(row_a.try_get::<rust_decimal::Decimal, _>("top_cycler_earned").unwrap(), rust_decimal::Decimal::from(100));
     assert_eq!(row_a.try_get::<i32, _>("distributions_count").unwrap(), 1);
 
     let row_b = sqlx::query(
@@ -1188,9 +1179,9 @@ async fn pot_bonus_distribution_updates_balances() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(row_b.try_get::<i64, _>("total_earned").unwrap(), 375);
-    assert_eq!(row_b.try_get::<i64, _>("profit_share_earned").unwrap(), 375);
-    assert_eq!(row_b.try_get::<i64, _>("top_cycler_earned").unwrap(), 0);
+    assert_eq!(row_b.try_get::<rust_decimal::Decimal, _>("total_earned").unwrap(), rust_decimal::Decimal::from(375));
+    assert_eq!(row_b.try_get::<rust_decimal::Decimal, _>("profit_share_earned").unwrap(), rust_decimal::Decimal::from(375));
+    assert_eq!(row_b.try_get::<rust_decimal::Decimal, _>("top_cycler_earned").unwrap(), rust_decimal::Decimal::ZERO);
 }
 
 #[tokio::test]
@@ -1203,7 +1194,7 @@ async fn pot_bonus_balances_upsert_accumulates() {
     let make_event = || DomainEvent {
         id: EventId::new(),
         company_id: Some(company_id),
-        event_type: EventType::RoyalPotBonusDistributed,
+        event_type: EventType::RoyalPotBonusSettled,
         payload: json!({
             "distributions": [
                 { "user_id": user_id, "profit_share": 200 }
@@ -1213,8 +1204,14 @@ async fn pot_bonus_balances_upsert_accumulates() {
     };
 
     let mut conn = pool.acquire().await.unwrap();
-    projector.project(std::slice::from_ref(&make_event()), &mut conn).await.unwrap();
-    projector.project(std::slice::from_ref(&make_event()), &mut conn).await.unwrap();
+    projector
+        .project(std::slice::from_ref(&make_event()), &mut conn)
+        .await
+        .unwrap();
+    projector
+        .project(std::slice::from_ref(&make_event()), &mut conn)
+        .await
+        .unwrap();
     drop(conn);
 
     let row = sqlx::query(
@@ -1226,8 +1223,12 @@ async fn pot_bonus_balances_upsert_accumulates() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(row.try_get::<i64, _>("total_earned").unwrap(), 400, "two distributions accumulated");
-    assert_eq!(row.try_get::<i64, _>("profit_share_earned").unwrap(), 400);
+    assert_eq!(
+        row.try_get::<rust_decimal::Decimal, _>("total_earned").unwrap(),
+        rust_decimal::Decimal::from(400),
+        "two distributions accumulated"
+    );
+    assert_eq!(row.try_get::<rust_decimal::Decimal, _>("profit_share_earned").unwrap(), rust_decimal::Decimal::from(400));
     assert_eq!(row.try_get::<i32, _>("distributions_count").unwrap(), 2);
 }
 
@@ -1255,11 +1256,10 @@ async fn pot_bonus_event_without_distributions_is_skipped() {
         .expect("skips gracefully");
     drop(conn);
 
-    let count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM royal_pot_bonus_balances")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM royal_pot_bonus_balances")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(count, 0, "no balance rows from event without distributions");
 }
 

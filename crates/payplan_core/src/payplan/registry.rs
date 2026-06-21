@@ -5,6 +5,21 @@ use crate::error::{CoreError, CoreResult};
 use crate::payplan::events::EventType;
 use crate::payplan::module::{ModuleContext, ModuleResult};
 
+/// Which aggregate a module's persisted state is keyed to.
+///
+/// Most modules track per-member progress and scope to the enrollment. A few
+/// (the binary genealogy tree, its carryover, and the company-wide royal pot)
+/// are shared across every member of a company and MUST scope to the company —
+/// otherwise each enrollment loads an empty state and no shared structure (e.g.
+/// the binary tree) ever forms.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AggregateScope {
+    /// State is keyed to the triggering enrollment (the default).
+    Enrollment,
+    /// State is keyed to the company; shared across all enrollments.
+    Company,
+}
+
 /// A pay plan compensation module.
 ///
 /// Modules are pure: they receive a context plus their own config and current state,
@@ -24,6 +39,13 @@ pub trait Module: Send + Sync {
     /// Events this module is interested in. The engine will skip modules whose
     /// `handles()` list does not contain the triggering event.
     fn handles(&self) -> &'static [EventType];
+
+    /// The aggregate this module's state is scoped to. Defaults to
+    /// [`AggregateScope::Enrollment`]; genealogy/company-wide modules override
+    /// this to [`AggregateScope::Company`] so they share one state row.
+    fn scope(&self) -> AggregateScope {
+        AggregateScope::Enrollment
+    }
 
     /// Run the module for a given triggering event.
     fn run(&self, ctx: &ModuleContext) -> CoreResult<ModuleResult>;

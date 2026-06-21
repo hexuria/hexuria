@@ -9,7 +9,7 @@
 
 use payplan_core::modules::royal::duplication::RoyalDuplicationState;
 use payplan_core::modules::royal::duplication_module::{DuplicationState, UserFlag};
-use payplan_core::shared::ids::{UserId};
+use payplan_core::shared::ids::UserId;
 use proptest::prelude::*;
 
 proptest! {

@@ -19,6 +19,10 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
+// `TokenService` / `RevokedJtiStore` are referenced via intra-doc links above;
+// the `authenticate` function only uses the trait methods on `ctx.tokens` /
+// `ctx.revoked_jti`, so the imports are not strictly needed at the Rust level.
+#[allow(unused_imports)]
 use payplan_app::ports::{RevokedJtiStore, TokenKind, TokenService};
 use payplan_core::platform::user::UserRole;
 use payplan_core::shared::ids::{CompanyId, UserId};
@@ -39,6 +43,11 @@ impl AuthUser {
     /// True if the caller may act on behalf of any user (admin impersonation).
     pub fn can_impersonate(&self) -> bool {
         self.role.can_admin_company()
+    }
+
+    /// True only for platform admins, who may target any company.
+    pub fn can_admin_platform(&self) -> bool {
+        self.role.can_admin_platform()
     }
 }
 
@@ -75,10 +84,7 @@ impl IntoResponse for AuthError {
 /// Core authentication: extract + verify the bearer access token and check
 /// revocation. Takes only the headers (not the full request) so it's usable
 /// from both the `FromRequestParts` extractor path and the middleware path.
-pub async fn authenticate(
-    ctx: &AppContext,
-    headers: &HeaderMap,
-) -> Result<AuthUser, AuthError> {
+pub async fn authenticate(ctx: &AppContext, headers: &HeaderMap) -> Result<AuthUser, AuthError> {
     // Manual Authorization header parsing — avoids an axum-extra dependency.
     let token = headers
         .get(axum::http::header::AUTHORIZATION)
@@ -99,7 +105,10 @@ pub async fn authenticate(
         .pool
         .acquire()
         .await
-        .map_err(|e| AuthError::InvalidToken(format!("acquire connection: {e}")))?;
+        .map_err(|e| {
+            tracing::error!(error = %e, "auth: failed to acquire connection");
+            AuthError::InvalidToken("service unavailable".into())
+        })?;
     // Fail closed: on a store error, deny (treat as revoked).
     if ctx
         .revoked_jti
@@ -139,11 +148,7 @@ impl FromRequestParts<AppContext> for AuthUser {
     }
 }
 
-type MiddlewareFn = Box<
-    dyn Fn(State<AppContext>, Request, Next) -> Pin<Box<dyn std::future::Future<Output = Result<Response, AuthError>> + Send>>
-        + Send
-        + Sync,
->;
+type RoleFuture = Pin<Box<dyn std::future::Future<Output = Result<Response, AuthError>> + Send>>;
 
 /// Middleware: require any authenticated user. Inserts `AuthUser` into
 /// request extensions so downstream handlers can read it without re-running
@@ -159,7 +164,9 @@ pub async fn require_authenticated(
 }
 
 /// Build a boxed middleware that requires a role satisfying `predicate`.
-fn make_role_guard<F>(predicate: F) -> impl Fn(State<AppContext>, Request, Next) -> Pin<Box<dyn std::future::Future<Output = Result<Response, AuthError>> + Send>> + Clone + Send + Sync + 'static
+fn make_role_guard<F>(
+    predicate: F,
+) -> impl Fn(State<AppContext>, Request, Next) -> RoleFuture + Clone + Send + Sync + 'static
 where
     F: Fn(UserRole) -> bool + Clone + Send + Sync + 'static,
 {
@@ -177,18 +184,13 @@ where
 }
 
 /// Convenience: require CompanyAdmin or PlatformAdmin.
-#[must_use]
-pub fn require_company_admin() -> impl Fn(State<AppContext>, Request, Next) -> Pin<Box<dyn std::future::Future<Output = Result<Response, AuthError>> + Send>> + Clone + Send + Sync + 'static {
+pub fn require_company_admin(
+) -> impl Fn(State<AppContext>, Request, Next) -> RoleFuture + Clone + Send + Sync + 'static {
     make_role_guard(UserRole::can_admin_company)
 }
 
 /// Convenience: require PlatformAdmin only.
-#[must_use]
-pub fn require_platform_admin() -> impl Fn(State<AppContext>, Request, Next) -> Pin<Box<dyn std::future::Future<Output = Result<Response, AuthError>> + Send>> + Clone + Send + Sync + 'static {
+pub fn require_platform_admin(
+) -> impl Fn(State<AppContext>, Request, Next) -> RoleFuture + Clone + Send + Sync + 'static {
     make_role_guard(UserRole::can_admin_platform)
 }
-
-// Keep the MiddlewareFn alias referenced (used by callers that need to store
-// the middleware in a heterogeneous collection).
-#[allow(dead_code)]
-fn _middleware_fn_alias(_f: MiddlewareFn) {}

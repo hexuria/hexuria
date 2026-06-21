@@ -575,6 +575,7 @@ Contains:
 - run Royal distribution
 - close Binary cycle
 - query dashboard summaries
+- **projection port traits**: `ModuleProjector` (state JSON → per-module relational tables) and `EventProjector` (emitted `DomainEvent`s → relational tables that can't be derived from state alone, e.g. `RoyalAccountDuplicated` materialising a new enrollment + flushline account). Both wired into `PgPurchaseWriter` (transactional, Path A) and `operations::run_stack_against_event` (best-effort, Path B).
 
 ### payplan_infra
 
@@ -585,9 +586,11 @@ Contains:
 - PostgreSQL repositories
 - event store
 - ledger store
-- auth
-- email
-- scheduler
+- module-state store
+- **projection implementations**: `PgProjections` (impl of `ModuleProjector` for flushline / `binary_nodes` / `binary_volume_ledger` / `binary_carryover`) and `PgEventProjector` (impl of `EventProjector` for duplication / pairing result / `binary_nodes.cycle_count` / `royal_pot_bonus_balances`)
+- **atomic purchase writer** (`PgPurchaseWriter`) that wraps purchase + subscription + entitlement + enrollment + events + ledger + module state + both projections in a single Postgres transaction
+- **auth** (Track C): `JwtService` (HS256, 15 min access + 7 day refresh) and `PgRevokedJtiStore`
+- **operations jobs** (renewals, royal pot distribution, binary cycle close)
 - payment adapter ports
 
 ### payplan_web
@@ -607,6 +610,51 @@ Contains:
 - dashboards
 
 This layer is not UI-only. It is the SSR web boundary, but it must call `payplan_app` for business workflows.
+
+### 10.5 Projection layer (Tracks A2–A5, B1–B4)
+
+The engine writes canonical state to `module_state` as opaque JSON. Two projector
+ports turn that state (and emitted events) into the per-module relational
+tables that the rest of the system reads from:
+
+- `ModuleProjector` — reacts to `(module_key, module_version, aggregate_id, state)`
+  changes. Drives `royal_flushline_accounts`, `binary_nodes`, `binary_volume_ledger`,
+  and `binary_carryover`.
+- `EventProjector` — reacts to emitted `DomainEvent`s. Drives everything that
+  can't be reconstructed from a single aggregate's state blob:
+  - `RoyalAccountDuplicated` → new `enrollment` + new `royal_flushline_account`
+  - `BinaryPairMatched` → `binary_pairing_results`
+  - `BinaryCycleClosed` → `binary_nodes.cycle_count` increment
+  - `RoyalPotBonusDistributed` → cumulative upsert into `royal_pot_bonus_balances`
+
+Both ports are wired into two paths:
+
+- **Path A** (transactional): `PgPurchaseWriter::write` invokes both projectors
+  inside the same Postgres transaction as the purchase / events / ledger /
+  state writes — either everything commits or everything rolls back.
+- **Path B** (best-effort): `operations::run_stack_against_event` invokes them
+  on subsequent event replays (renewal runs, job retries) so the relational
+  tables stay in sync with `module_state` even if the original write path
+  skipped a projector.
+
+### 10.6 Auth layer (Track C)
+
+- JWTs signed with HS256. Access token TTL = 15 min, refresh token TTL = 7 days.
+- Every token carries a unique `jti` (UUIDv7). On logout or refresh rotation
+  the old `jti` is written to `revoked_jti`; subsequent `authenticate` calls
+  fail-closed if the `jti` is in the table.
+- Refresh tokens are single-use: presenting a valid refresh issues a new pair
+  and revokes the old `jti` in the same transaction.
+- Route gating (in `payplan_web::routes`):
+  - **public** — health, login, refresh, signup (role forced to `User`).
+  - **authenticated** — logout, purchases, package listing.
+  - **company_admin** — company + catalog + billing + package creation.
+  - **platform_admin** — admin job triggers (renewals, pot distribution,
+    binary cycle close).
+- `AppContext` composes the auth deps (`Arc<dyn TokenService>`,
+  `Arc<dyn RevokedJtiStore>`); `payplan_server::main` builds it with a JWT
+  secret pulled from `JWT_SECRET` (dev default supplied by
+  `dev_jwt_secret()`).
 
 ## 11. Persistence Model
 
@@ -635,6 +683,7 @@ Royal module tables:
 - royal_matrix_slots
 - royal_qualifications
 - royal_pot_bonus_pool
+- royal_pot_bonus_balances _(Track B4 — per-user cumulative pot earnings)_
 
 Binary module tables:
 
@@ -643,6 +692,22 @@ Binary module tables:
 - binary_cycle_periods
 - binary_pairing_results
 - binary_carryover
+
+Engine tables:
+
+- module_state _(per-(module_key, module_version, aggregate_id) opaque JSON)_
+
+Auth tables:
+
+- revoked_jti _(Track C — JWT `jti` revocation list for logout + refresh-rotation)_
+
+### 11.1 Notable columns / invariants
+
+| Table | Column | Notes |
+| --- | --- | --- |
+| `binary_nodes` | `cycle_count` | Added in migration `0006`. Incremented by `EventProjector` on every `BinaryCycleClosed` event. |
+| `royal_pot_bonus_balances` | all | New table in `0007`. One row per `(company_id, user_id)`; `total_earned` / `profit_share_earned` / `top_cycler_earned` / `distributions_count` accumulate via a cumulative upsert on each `RoyalPotBonusDistributed` event. |
+| `revoked_jti` | all | New table in `0008`. Stores `(jti, user_id, token_type, revoked_at, expires_at)`. Rows are safe to purge after `expires_at`. |
 
 ## 12. Implementation Process
 

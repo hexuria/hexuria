@@ -6,16 +6,15 @@ use payplan_core::platform::company::{Company, CompanyStatus};
 use payplan_core::platform::user::{User, UserRole};
 use payplan_core::shared::ids::{CompanyId, UserId};
 use serde_json::Value;
-use sqlx::{PgConnection, PgPool, Row};
+use sqlx::{PgConnection, Row};
 
-pub struct PgCompanyRepo {
-    pool: PgPool,
-}
+#[derive(Default)]
+pub struct PgCompanyRepo {}
 
 impl PgCompanyRepo {
     #[must_use]
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -105,14 +104,13 @@ fn parse_company_status(s: &str) -> AppResult<CompanyStatus> {
     }
 }
 
-pub struct PgUserRepo {
-    pool: PgPool,
-}
+#[derive(Default)]
+pub struct PgUserRepo {}
 
 impl PgUserRepo {
     #[must_use]
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 

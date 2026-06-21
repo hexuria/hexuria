@@ -20,23 +20,98 @@ use tracing::{info, instrument};
 
 use crate::context::AppContext;
 
-#[derive(Debug, Serialize)]
+/// HTTP error with an explicit status. Domain/validation failures get a safe
+/// 4xx with a client-facing message; infra/DB failures are collapsed to a
+/// generic 500 so internal error strings (SQL, connection details) never reach
+/// the client — the detail is logged server-side instead.
+#[derive(Debug)]
 pub struct ApiError {
+    pub status: StatusCode,
     pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ApiErrorBody {
+    message: String,
+}
+
+impl ApiError {
+    pub fn new(status: StatusCode, message: impl Into<String>) -> Self {
+        Self {
+            status,
+            message: message.into(),
+        }
+    }
+
+    pub fn bad_request(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, message)
+    }
+
+    pub fn forbidden(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::FORBIDDEN, message)
+    }
+
+    /// Collapse an internal error to a generic 500, logging the real detail.
+    pub fn internal(context: &str, detail: impl std::fmt::Display) -> Self {
+        tracing::error!(context, error = %detail, "internal error");
+        Self::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal server error".to_string(),
+        )
+    }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(self)).into_response()
+        (
+            self.status,
+            Json(ApiErrorBody {
+                message: self.message,
+            }),
+        )
+            .into_response()
     }
+}
+
+fn to_json<T: serde::Serialize>(val: &T) -> Result<serde_json::Value, ApiError> {
+    serde_json::to_value(val).map_err(|e| ApiError::internal("serialize response", e))
 }
 
 impl From<AppError> for ApiError {
     fn from(e: AppError) -> Self {
-        Self {
-            message: e.to_string(),
+        match e {
+            // Domain/validation errors carry a safe, client-facing message.
+            AppError::Validation(_) | AppError::Core(_) => Self::bad_request(e.to_string()),
+            AppError::NotFound(msg) => Self::new(StatusCode::NOT_FOUND, msg),
+            AppError::Forbidden(msg) => Self::new(StatusCode::FORBIDDEN, msg),
+            AppError::Conflict(msg) => Self::new(StatusCode::CONFLICT, msg),
+            // Infra/unknown errors must NOT leak internal detail to the client.
+            AppError::Infra(_) | AppError::Other(_) => Self::internal("app_error", e),
         }
     }
+}
+
+/// Resolve the company a write should target (IDOR guard — REMEDIATION_PLAN
+/// Task 6). Company admins are pinned to their own company: a body-supplied
+/// `company_id` that targets a DIFFERENT company is rejected with 403 so a
+/// company-A admin can't create resources under company B. Only platform admins
+/// may target an arbitrary company via the body.
+fn effective_company(
+    auth: &crate::session::AuthUser,
+    body_company_id: uuid::Uuid,
+) -> Result<CompanyId, ApiError> {
+    if auth.can_admin_platform() {
+        return Ok(CompanyId::from(body_company_id));
+    }
+    let own = auth
+        .company_id
+        .ok_or_else(|| ApiError::forbidden("caller is not scoped to a company"))?;
+    if own.0 != body_company_id {
+        return Err(ApiError::forbidden(
+            "cannot create resources for another company",
+        ));
+    }
+    Ok(own)
 }
 
 #[derive(Debug, Deserialize)]
@@ -51,19 +126,17 @@ pub struct CreateCatalogItemBody {
 #[instrument(skip(ctx, body))]
 pub async fn create_catalog_item_handler(
     State(ctx): State<AppContext>,
+    auth: crate::session::AuthUser,
     Json(body): Json<CreateCatalogItemBody>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let item_type = match body.item_type.as_str() {
         "product" => CatalogItemType::Product,
         "service" => CatalogItemType::Service,
-        other => {
-            return Err(ApiError {
-                message: format!("unknown item_type: {other}"),
-            })
-        }
+        other => return Err(ApiError::bad_request(format!("unknown item_type: {other}"))),
     };
+    let company_id = effective_company(&auth, body.company_id)?;
     let cmd = CreateCatalogItemCommand {
-        company_id: CompanyId::from(body.company_id),
+        company_id,
         name: body.name,
         description: body.description,
         sku: body.sku,
@@ -74,7 +147,7 @@ pub async fn create_catalog_item_handler(
         .map_err(ApiError::from)?;
     Ok((
         StatusCode::CREATED,
-        Json(serde_json::to_value(&item).unwrap()),
+        Json(to_json(&item)?),
     ))
 }
 
@@ -96,7 +169,7 @@ pub async fn create_company_handler(
     let c = handle_create_company(cmd, ctx.companies.as_ref(), &ctx.pool)
         .await
         .map_err(ApiError::from)?;
-    Ok((StatusCode::CREATED, Json(serde_json::to_value(&c).unwrap())))
+    Ok((StatusCode::CREATED, Json(to_json(&c)?)))
 }
 
 #[derive(Debug, Deserialize)]
@@ -125,7 +198,7 @@ pub async fn register_user_handler(
         .await
         .map_err(ApiError::from)?;
     // Never leak the password hash in the response.
-    let mut value = serde_json::to_value(&u).unwrap();
+    let mut value = to_json(&u)?;
     if let Some(obj) = value.as_object_mut() {
         obj.remove("password_hash");
     }
@@ -144,41 +217,33 @@ pub struct CreateBillingPlanBody {
     pub grace_period_days: Option<u32>,
 }
 
-#[instrument(skip(ctx, body))]
+#[instrument(skip(ctx, auth, body))]
 pub async fn create_billing_plan_handler(
     State(ctx): State<AppContext>,
+    auth: crate::session::AuthUser,
     Json(body): Json<CreateBillingPlanBody>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let billing_type = match body.billing_type.as_str() {
         "one_time" => payplan_core::platform::catalog::BillingType::OneTime,
         "recurring" => payplan_core::platform::catalog::BillingType::Recurring,
-        other => {
-            return Err(ApiError {
-                message: format!("unknown billing_type: {other}"),
-            })
-        }
+        other => return Err(ApiError::bad_request(format!("unknown billing_type: {other}"))),
     };
     let recurring = if billing_type == payplan_core::platform::catalog::BillingType::Recurring {
-        let interval = body.recurring_interval.as_deref().ok_or_else(|| ApiError {
-            message: "recurring billing requires recurring_interval".into(),
-        })?;
+        let interval = body
+            .recurring_interval
+            .as_deref()
+            .ok_or_else(|| ApiError::bad_request("recurring billing requires recurring_interval"))?;
         let interval_enum = match interval {
             "daily" => payplan_core::platform::catalog::RecurrenceInterval::Daily,
             "weekly" => payplan_core::platform::catalog::RecurrenceInterval::Weekly,
             "monthly" => payplan_core::platform::catalog::RecurrenceInterval::Monthly,
             "quarterly" => payplan_core::platform::catalog::RecurrenceInterval::Quarterly,
             "yearly" => payplan_core::platform::catalog::RecurrenceInterval::Yearly,
-            other => {
-                return Err(ApiError {
-                    message: format!("unknown interval: {other}"),
-                })
-            }
+            other => return Err(ApiError::bad_request(format!("unknown interval: {other}"))),
         };
         let interval_count = body.recurring_interval_count.unwrap_or(1);
         if interval_count == 0 {
-            return Err(ApiError {
-                message: "recurring_interval_count must be > 0".into(),
-            });
+            return Err(ApiError::bad_request("recurring_interval_count must be > 0"));
         }
         Some(payplan_core::platform::catalog::RecurringSettings {
             interval: interval_enum,
@@ -189,8 +254,31 @@ pub async fn create_billing_plan_handler(
     } else {
         None
     };
+
+    // IDOR guard (Task 6): a billing plan inherits its tenant from the catalog
+    // item it references. Verify the referenced item belongs to the caller's
+    // company (platform admins may target any item).
+    let catalog_item_id = payplan_core::shared::ids::CatalogItemId::from(body.catalog_item_id);
+    let mut conn = ctx
+        .pool
+        .acquire()
+        .await
+        .map_err(|e| ApiError::internal("acquire connection", e))?;
+    let item = ctx
+        .catalog
+        .get_item(catalog_item_id, conn.as_mut())
+        .await
+        .map_err(ApiError::from)?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "catalog item not found"))?;
+    drop(conn);
+    if !auth.can_admin_platform() && Some(item.company_id) != auth.company_id {
+        return Err(ApiError::forbidden(
+            "catalog item belongs to a different company",
+        ));
+    }
+
     let cmd = CreateBillingPlanCommand {
-        catalog_item_id: payplan_core::shared::ids::CatalogItemId::from(body.catalog_item_id),
+        catalog_item_id,
         billing_type,
         price: payplan_core::shared::money::Money::new(body.price_amount, body.currency),
         recurring,
@@ -200,7 +288,7 @@ pub async fn create_billing_plan_handler(
         .map_err(ApiError::from)?;
     Ok((
         StatusCode::CREATED,
-        Json(serde_json::to_value(&plan).unwrap()),
+        Json(to_json(&plan)?),
     ))
 }
 
@@ -210,14 +298,26 @@ pub async fn list_packages_handler(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // For simplicity: list all packages across all companies. In real API,
     // extract company_id from auth context.
-    let mut pool_conn = ctx.pool.acquire().await.map_err(|e| ApiError { message: e.to_string() })?;
-    let companies = ctx.companies.list(pool_conn.as_mut()).await.map_err(ApiError::from)?;
+    let mut pool_conn = ctx
+        .pool
+        .acquire()
+        .await
+        .map_err(|e| ApiError::internal("acquire connection", e))?;
+    let companies = ctx
+        .companies
+        .list(pool_conn.as_mut())
+        .await
+        .map_err(ApiError::from)?;
     let mut all = Vec::new();
     for c in companies {
-        let pkgs = ctx.packages.list(c.id, pool_conn.as_mut()).await.map_err(ApiError::from)?;
+        let pkgs = ctx
+            .packages
+            .list(c.id, pool_conn.as_mut())
+            .await
+            .map_err(ApiError::from)?;
         all.extend(pkgs);
     }
-    Ok(Json(serde_json::to_value(&all).unwrap()))
+    Ok(Json(to_json(&all)?))
 }
 
 #[derive(Debug, Deserialize)]
@@ -259,13 +359,15 @@ impl From<PackageItemBody> for PackageItem {
     }
 }
 
-#[instrument(skip(ctx, body))]
+#[instrument(skip(ctx, auth, body))]
 pub async fn create_package_handler(
     State(ctx): State<AppContext>,
+    auth: crate::session::AuthUser,
     Json(body): Json<CreatePackageBody>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    let company_id = effective_company(&auth, body.company_id)?;
     let cmd = CreatePackageCommand {
-        company_id: CompanyId::from(body.company_id),
+        company_id,
         name: body.name,
         description: body.description,
         pay_plan_stack_id: body
@@ -278,7 +380,7 @@ pub async fn create_package_handler(
         .map_err(ApiError::from)?;
     Ok((
         StatusCode::CREATED,
-        Json(serde_json::to_value(&pkg).unwrap()),
+        Json(to_json(&pkg)?),
     ))
 }
 
@@ -288,8 +390,6 @@ pub struct PurchaseBody {
     pub user_id: uuid::Uuid,
     pub package_id: uuid::Uuid,
     pub sponsor_user_id: Option<uuid::Uuid>,
-    pub payment_currency: String,
-    pub gross_amount: rust_decimal::Decimal,
 }
 
 #[derive(Debug, Serialize)]
@@ -307,24 +407,20 @@ pub async fn purchase_package_handler(
     State(ctx): State<AppContext>,
     auth: crate::session::AuthUser,
     Json(body): Json<PurchaseBody>,
-) -> Result<(StatusCode, Json<PurchaseResponse>), crate::session::AuthError> {
-    // Purchase gate (Track C): regular users may only purchase for themselves;
-    // admins (CompanyAdmin+) may initiate purchases on behalf of any user.
+) -> Result<(StatusCode, Json<PurchaseResponse>), ApiError> {
     if !auth.can_impersonate() && body.user_id != auth.user_id.0 {
-        return Err(crate::session::AuthError::Forbidden);
+        return Err(ApiError::forbidden("cannot purchase on behalf of another user"));
     }
     let cmd = PurchasePackageCommand {
         company_id: CompanyId::from(body.company_id),
         user_id: UserId::from(body.user_id),
         package_id: PackageId::from(body.package_id),
         sponsor_user_id: body.sponsor_user_id.map(UserId::from),
-        payment_currency: body.payment_currency,
-        gross_amount: body.gross_amount,
     };
     let deps = build_purchase_deps(&ctx);
     let outcome = handle_purchase_package(cmd, &deps)
         .await
-        .map_err(|e| crate::session::AuthError::InvalidToken(e.to_string()))?;
+        .map_err(ApiError::from)?;
     info!(
         purchase_id = %outcome.purchase_id,
         "purchase flow completed via API"
@@ -428,6 +524,11 @@ fn _types(_f: Form<()>, _p: Path<()>) {}
 // Auth handlers (Track C)
 // ===========================================================================
 
+/// Pre-computed argon2 hash of a random string. Used in the login handler when
+/// the requested email doesn't match any user — we still run the verifier
+/// against this dummy so the "no such user" timing matches "wrong password".
+const DUMMY_ARGON2_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHQ$JEjzR8KNbB7+kyBJPzLYa6Ek1T/lnM39FhOvkMB6HKs";
+
 #[derive(Debug, Deserialize)]
 pub struct LoginBody {
     pub email: String,
@@ -451,40 +552,54 @@ pub async fn login_handler(
         .pool
         .acquire()
         .await
-        .map_err(|e| ApiError { message: e.to_string() })?;
+        .map_err(|e| ApiError::internal("login: acquire connection", e))?;
     let user = ctx
         .users
         .find_by_email(&body.email, &mut conn)
         .await
-        .map_err(ApiError::from)?
-        .ok_or_else(|| ApiError {
-            message: "invalid credentials".into(),
-        })?;
-    // Constant-time-ish: treat "no such user" and "bad password" the same.
-    let ok = ctx
-        .passwords
-        .verify(&body.password, &user.password_hash)
-        .await
-        .map_err(ApiError::from)?;
+        .map_err(|e| ApiError::internal("login: find user", e))?;
+    let (user, ok) = match user {
+        Some(u) => {
+            let ok = ctx
+                .passwords
+                .verify(&body.password, &u.password_hash)
+                .await
+                .map_err(|e| ApiError::internal("login: verify password", e))?;
+            (Some(u), ok)
+        }
+        None => {
+            // Timing-safe: do argon2 work against a dummy hash so the "no such
+            // user" path takes the same time as a wrong-password path.
+            let _ = ctx.passwords.verify(&body.password, DUMMY_ARGON2_HASH).await;
+            (None, false)
+        }
+    };
     if !ok {
-        return Err(ApiError {
-            message: "invalid credentials".into(),
-        });
+        return Err(ApiError::new(StatusCode::UNAUTHORIZED, "invalid credentials"));
     }
+    let user = user.expect("ok=true implies user is Some");
 
     let role_str = user_role_str(user.role);
     let access = ctx
         .tokens
         .issue_access(user.id.0, user.company_id.map(|c| c.0), role_str)
         .await
-        .map_err(ApiError::from)?;
+        .map_err(|e| ApiError::internal("login: issue access token", e))?;
     let refresh = ctx
         .tokens
         .issue_refresh(user.id.0, user.company_id.map(|c| c.0), role_str)
         .await
-        .map_err(ApiError::from)?;
-    let access_token = ctx.tokens.encode(&access).await.map_err(ApiError::from)?;
-    let refresh_token = ctx.tokens.encode(&refresh).await.map_err(ApiError::from)?;
+        .map_err(|e| ApiError::internal("login: issue refresh token", e))?;
+    let access_token = ctx
+        .tokens
+        .encode(&access)
+        .await
+        .map_err(|e| ApiError::internal("login: encode access token", e))?;
+    let refresh_token = ctx
+        .tokens
+        .encode(&refresh)
+        .await
+        .map_err(|e| ApiError::internal("login: encode refresh token", e))?;
     Ok(Json(TokenPair {
         access_token,
         refresh_token,
@@ -506,48 +621,63 @@ pub async fn refresh_handler(
     let claims = ctx
         .tokens
         .verify(&body.refresh_token, payplan_app::ports::TokenKind::Refresh)
-        .map_err(ApiError::from)?;
+        .map_err(|_| ApiError::new(StatusCode::UNAUTHORIZED, "invalid refresh token"))?;
 
-    // Single-use refresh rotation: revoke the presented refresh token's jti.
     let mut conn = ctx
         .pool
         .acquire()
         .await
-        .map_err(|e| ApiError { message: e.to_string() })?;
-    if ctx
-        .revoked_jti
-        .is_revoked(&claims.jti, &mut conn)
-        .await
-        .map_err(ApiError::from)?
-    {
-        return Err(ApiError {
-            message: "refresh token revoked".into(),
-        });
-    }
+        .map_err(|e| ApiError::internal("refresh: acquire connection", e))?;
     let exp = chrono::DateTime::from_timestamp(claims.exp as i64, 0).unwrap_or(chrono::Utc::now());
-    ctx.revoked_jti
-        .revoke(&claims.jti, claims.sub, payplan_app::ports::TokenKind::Refresh, exp, &mut conn)
+    let inserted = ctx
+        .revoked_jti
+        .revoke(
+            &claims.jti,
+            claims.sub,
+            payplan_app::ports::TokenKind::Refresh,
+            exp,
+            &mut conn,
+        )
         .await
-        .map_err(ApiError::from)?;
+        .map_err(|e| ApiError::internal("refresh: revoke jti", e))?;
+    if !inserted {
+        return Err(ApiError::new(StatusCode::UNAUTHORIZED, "token revoked"));
+    }
 
-    // Issue a fresh pair.
+    let user = ctx
+        .users
+        .get(UserId::from(claims.sub), &mut conn)
+        .await
+        .map_err(|e| ApiError::internal("refresh: load user", e))?
+        .ok_or_else(|| ApiError::new(StatusCode::UNAUTHORIZED, "user no longer exists"))?;
+    let role_str = user_role_str(user.role);
+    let company_id = user.company_id.map(|c| c.0);
+
     let access = ctx
         .tokens
-        .issue_access(claims.sub, claims.company_id, &claims.role)
+        .issue_access(claims.sub, company_id, role_str)
         .await
-        .map_err(ApiError::from)?;
+        .map_err(|e| ApiError::internal("refresh: issue access token", e))?;
     let refresh = ctx
         .tokens
-        .issue_refresh(claims.sub, claims.company_id, &claims.role)
+        .issue_refresh(claims.sub, company_id, role_str)
         .await
-        .map_err(ApiError::from)?;
-    let access_token = ctx.tokens.encode(&access).await.map_err(ApiError::from)?;
-    let refresh_token = ctx.tokens.encode(&refresh).await.map_err(ApiError::from)?;
+        .map_err(|e| ApiError::internal("refresh: issue refresh token", e))?;
+    let access_token = ctx
+        .tokens
+        .encode(&access)
+        .await
+        .map_err(|e| ApiError::internal("refresh: encode access token", e))?;
+    let refresh_token = ctx
+        .tokens
+        .encode(&refresh)
+        .await
+        .map_err(|e| ApiError::internal("refresh: encode refresh token", e))?;
     Ok(Json(TokenPair {
         access_token,
         refresh_token,
         user_id: claims.sub,
-        role: claims.role,
+        role: role_str.into(),
     }))
 }
 
@@ -562,12 +692,12 @@ pub async fn logout_handler(
     State(ctx): State<AppContext>,
     auth: crate::session::AuthUser,
     Json(body): Json<LogoutBody>,
-) -> Result<StatusCode, crate::session::AuthError> {
+) -> Result<StatusCode, ApiError> {
     let mut conn = ctx
         .pool
         .acquire()
         .await
-        .map_err(|e| crate::session::AuthError::InvalidToken(e.to_string()))?;
+        .map_err(|e| ApiError::internal("logout: acquire connection", e))?;
 
     // Revoke the access token. `AuthUser` already verified it, but we re-decode
     // to recover the jti/exp (AuthUser discards them).
@@ -579,7 +709,13 @@ pub async fn logout_handler(
             chrono::DateTime::from_timestamp(claims.exp as i64, 0).unwrap_or(chrono::Utc::now());
         let _ = ctx
             .revoked_jti
-            .revoke(&claims.jti, auth.user_id.0, payplan_app::ports::TokenKind::Access, exp, &mut conn)
+            .revoke(
+                &claims.jti,
+                auth.user_id.0,
+                payplan_app::ports::TokenKind::Access,
+                exp,
+                &mut conn,
+            )
             .await;
     }
     // Revoke the refresh token if supplied (best-effort; may be absent/expired).
@@ -592,7 +728,13 @@ pub async fn logout_handler(
                 .unwrap_or(chrono::Utc::now());
             let _ = ctx
                 .revoked_jti
-                .revoke(&claims.jti, auth.user_id.0, payplan_app::ports::TokenKind::Refresh, exp, &mut conn)
+                .revoke(
+                    &claims.jti,
+                    auth.user_id.0,
+                    payplan_app::ports::TokenKind::Refresh,
+                    exp,
+                    &mut conn,
+                )
                 .await;
         }
     }

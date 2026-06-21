@@ -7,8 +7,8 @@
 
 use async_trait::async_trait;
 use payplan_app::error::{AppError, AppResult};
-use payplan_app::ports::{PurchaseWrites, PurchaseWriter};
-use sqlx::{PgConnection, PgPool};
+use payplan_app::ports::{PurchaseWriter, PurchaseWrites};
+use sqlx::PgPool;
 use tracing::info;
 
 pub struct PgPurchaseWriter {
@@ -173,7 +173,9 @@ impl PurchaseWriter for PgPurchaseWriter {
 
         // Per-module projections (Track A2-A5).
         if let Some(projector) = writes.projector {
-            projector.project(writes.module_state_changes, &mut tx).await?;
+            projector
+                .project(writes.module_state_changes, &mut tx)
+                .await?;
         }
         // Event-driven projections (Track B1/B2): materialise rows that can't
         // be derived from module state (new enrollments, pairing results, ...).
@@ -263,7 +265,9 @@ fn aggregate_type_for(event_type: payplan_core::payplan::events::EventType) -> &
         E::BillingPlanCreated => "billing_plan",
         E::PackageCreated => "package",
         E::PackagePurchased => "purchase",
-        E::SubscriptionCreated | E::SubscriptionRenewed | E::SubscriptionCancelled => "subscription",
+        E::SubscriptionCreated | E::SubscriptionRenewed | E::SubscriptionCancelled => {
+            "subscription"
+        }
         E::EntitlementGranted | E::EntitlementRevoked => "entitlement",
         E::EnrollmentCreated | E::EnrollmentSuspended | E::EnrollmentCancelled => "enrollment",
         E::RewardLedgerEntryCreated => "reward_ledger",

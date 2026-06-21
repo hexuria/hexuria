@@ -7,7 +7,7 @@ use crate::error::{CoreError, CoreResult};
 use crate::modules::binary::tree::{BinaryLeg, BinaryNode, BinaryPlacementStrategy};
 use crate::payplan::events::EventType;
 use crate::payplan::module::{ModuleContext, ModuleResult};
-use crate::payplan::registry::Module;
+use crate::payplan::registry::{AggregateScope, Module};
 use crate::shared::ids::{BinaryNodeId, UserId};
 
 /// Per-(company) tree state. Maps `user_id -> BinaryNodeId`.
@@ -68,8 +68,20 @@ impl Module for BinaryTreeModule {
         &[EventType::EnrollmentCreated, EventType::BinaryNodePlaced]
     }
 
+    /// The binary tree is a single company-wide genealogy. Scoping it to the
+    /// enrollment would make every member load an empty tree and place itself
+    /// as a root — no tree would ever form.
+    fn scope(&self) -> AggregateScope {
+        AggregateScope::Company
+    }
+
     fn run(&self, ctx: &ModuleContext) -> CoreResult<ModuleResult> {
         let mut state: BinaryTreeState = ctx.decode_state().map_err(CoreError::from)?;
+        // `user_to_node` is `#[serde(skip)]`, so a state loaded from
+        // persistence comes back with an empty index even though `nodes` is
+        // populated. Rebuild it from `nodes` or the idempotency guard and
+        // sponsor lookups below would always miss (Task 12).
+        state = BinaryTreeState::from_nodes(state.nodes);
         let mut result = ModuleResult::empty();
 
         let Some(event) = &ctx.triggering_event else {

@@ -34,6 +34,11 @@ pub enum EventType {
     RoyalMatrixCreated,
     RoyalMatrixCycled,
     RoyalPotBonusDistributed,
+    /// Terminal event emitted by the pot-bonus handler once a distribution has
+    /// been settled. Distinct from `RoyalPotBonusDistributed` (the trigger) so
+    /// the handler does NOT re-enter its own `handles()` set and self-cascade.
+    /// Only projectors react to it.
+    RoyalPotBonusSettled,
     RoyalAccountDuplicated,
     RoyalAccountResetToKing,
     BinaryNodePlaced,
@@ -67,6 +72,7 @@ impl EventType {
             Self::RoyalMatrixCreated => "royal.matrix_created",
             Self::RoyalMatrixCycled => "royal.matrix_cycled",
             Self::RoyalPotBonusDistributed => "royal.pot_bonus_distributed",
+            Self::RoyalPotBonusSettled => "royal.pot_bonus_settled",
             Self::RoyalAccountDuplicated => "royal.account_duplicated",
             Self::RoyalAccountResetToKing => "royal.account_reset_to_king",
             Self::BinaryNodePlaced => "binary.node_placed",

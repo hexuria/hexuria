@@ -59,9 +59,13 @@ fn aggregate_type_for(event_type: EventType) -> &'static str {
         EventType::BillingPlanCreated => "billing_plan",
         EventType::PackageCreated => "package",
         EventType::PackagePurchased => "purchase",
-        EventType::SubscriptionCreated | EventType::SubscriptionRenewed | EventType::SubscriptionCancelled => "subscription",
+        EventType::SubscriptionCreated
+        | EventType::SubscriptionRenewed
+        | EventType::SubscriptionCancelled => "subscription",
         EventType::EntitlementGranted | EventType::EntitlementRevoked => "entitlement",
-        EventType::EnrollmentCreated | EventType::EnrollmentSuspended | EventType::EnrollmentCancelled => "enrollment",
+        EventType::EnrollmentCreated
+        | EventType::EnrollmentSuspended
+        | EventType::EnrollmentCancelled => "enrollment",
         EventType::RewardLedgerEntryCreated => "reward_ledger",
         _ => "module",
     }

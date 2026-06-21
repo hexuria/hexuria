@@ -1,14 +1,15 @@
 # Track C (JWT Auth) — Progress & Handoff
 
-**Last updated:** session boundary. Track C is **~80% complete and compiles clean**. Two steps remain: tests + final verification.
+**Last updated:** Track C is **✅ COMPLETE**. All tests pass; full verification suite green.
 
 ## Current state
 
 - ✅ `cargo check --workspace --all-targets` — **0 errors**
 - ✅ `cargo test -p payplan_core` — **96 passed** (77 unit + 19 property)
 - ✅ `cargo test --workspace --lib` — **62 passed**
-- ⏳ Step 9 (tests) — NOT started
-- ⏳ Step 10 (final verification incl. integration tests) — NOT started
+- ✅ `cargo test -p payplan_infra --features integration --tests -- --include-ignored --test-threads=1` — **33 passed** (7 files; 3 new auth tests)
+- ✅ `cargo test -p payplan_web --features integration --tests -- --include-ignored --test-threads=1` — **8 passed** (2 files; all new HTTP-level auth tests)
+- ✅ `cargo clippy --workspace --all-targets` — 0 errors, 21 warnings (all pre-existing or Track E cleanup)
 
 ## What's done (Steps 1–8)
 
@@ -86,90 +87,33 @@ In `crates/payplan_web/src/handlers.rs`:
 
 ## What's left
 
-### Step 9 — Tests (NOT started)
+~~### Step 9 — Tests (NOT started)~~ — DONE
 
-**Two test files to create:**
+~~### Step 10 — Final verification~~ — DONE
 
-#### A. `crates/payplan_infra/tests/auth.rs` (integration feature-gated)
+### What was added in this session
 
-Follow the exact pattern of the existing integration tests (`projections.rs`, `operations.rs`):
-```rust
-#![cfg(feature = "integration")]
-use payplan_infra::postgres::{connect, PgConfig};
-use payplan_infra::migrator;
-use payplan_infra::auth::{JwtService, PgRevokedJtiStore};
-use payplan_app::ports::{RevokedJtiStore, TokenService, TokenKind};
-use sqlx::PgPool;
+#### A. `crates/payplan_infra/tests/auth.rs` — `PgRevokedJtiStore` integration tests
+3 tests:
+1. **`revoked_jti_round_trip`** — unknown jti → not revoked; revoke → revoked; other jti still not revoked; idempotent re-revoke (row count stays 1); `token_type='access'` round-trips.
+2. **`revoked_jti_stores_refresh_kind`** — `TokenKind::Refresh` round-trips as `'refresh'` and is queryable.
+3. **`revoked_jti_persists_expires_at`** — `expires_at` column receives the caller's timestamp verbatim.
 
-async fn pool() -> PgPool { /* same as other tests: from_env → connect → migrator::run */ }
-```
+#### B. `crates/payplan_web/tests/auth.rs` — HTTP-level end-to-end tests
+8 tests, all gated behind `integration` feature:
+1. **`login_then_purchase_then_logout_blocks_reuse`** — full happy path: login → 201 purchase → logout → 401 on reuse.
+2. **`purchase_for_other_user_is_403_for_regular_user`** — `body.user_id != auth.user_id` → 403; self-purchase still 201.
+3. **`missing_token_is_401`** — no `Authorization` header → 401.
+4. **`admin_job_requires_platform_admin`** — no token → 401; regular user token → 403.
+5. **`invalid_signature_is_401`** — token signed with wrong secret → 401.
+6. **`refresh_rotates_and_revokes_old_refresh_jti`** — first `/refresh` succeeds; reusing the rotated refresh token fails; `revoked_jti` is populated.
+7. **`logout_revokes_both_jtis`** — logout with access+refresh inserts exactly 2 rows; subsequent request with revoked access token → 401.
+8. **`password_service_smoke`** — argon2 round-trip sanity (catches silent hash-format regressions).
 
-Tests to write:
-1. **`revoked_jti_round_trip`** — `PgRevokedJtiStore::revoke` then `is_revoked` returns true; unknown jti returns false; re-revoke is idempotent (no error). Seed a `users` row first (FK target).
-2. **`revoked_jti_truncate_helper`** — add `revoked_jti` to the TRUNCATE list.
-
-Note: the JwtService unit tests already exist inline in `auth.rs` (4 tests, all passing), so the integration test only needs the `PgRevokedJtiStore` coverage.
-
-#### B. `crates/payplan_web/tests/auth.rs` (HTTP-level, needs a new dev-dep)
-
-**This is the harder one.** Testing axum handlers end-to-end requires building the `AppContext` with a real pool + a JWT secret, then using `axum::body::Body` + `tower::ServiceExt::oneshot` to send requests.
-
-**Decision needed before writing**: does `payplan_web` have `tower` with `util` feature + `http-body-util` for the test? Check `payplan_web/Cargo.toml` `[dev-dependencies]`. You may need to add:
-```toml
-[dev-dependencies]
-tower = { workspace = true, features = ["util"] }
-http-body-util = "0.1"
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-```
-
-End-to-end test to write:
-1. **`login_then_purchase_then_logout_blocks_reuse`**:
-   - Seed: company + user (via SQL, argon2-hash the password via `PasswordService`)
-   - POST `/api/auth/login` with email/password → assert 200 + token pair
-   - POST `/api/purchases` with the access token + matching `user_id` → assert 201
-   - POST `/api/auth/logout` with the access token → assert 204
-   - POST `/api/purchases` again with the now-revoked access token → assert 401
-2. **`purchase_for_other_user_is_403`**:
-   - Login as a regular `UserRole::User`
-   - POST `/api/purchases` with a DIFFERENT `user_id` → assert 403
-3. **`missing_token_is_401`**:
-   - POST `/api/purchases` with no Authorization header → assert 401
-4. **`admin_job_requires_platform_admin`** (optional):
-   - POST `/admin/jobs/renewals/run` with a regular user token → assert 403
-   - POST `/admin/jobs/renewals/run` with no token → assert 401
-
-**The axum 0.7 oneshot pattern**:
-```rust
-use tower::ServiceExt;
-use http_body_util::BodyExt;
-
-let app = build_router(ctx);
-let resp = app
-    .oneshot(
-        Request::builder()
-            .method("POST")
-            .uri("/api/auth/login")
-            .header("content-type", "application/json")
-            .body(Body::from(serde_json::to_vec(&body).unwrap()))
-            .unwrap()
-    )
-    .await
-    .unwrap();
-assert_eq!(resp.status(), StatusCode::OK);
-let body = resp.into_body().collect().await.unwrap().to_bytes();
-let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-```
-
-### Step 10 — Final verification
-
+**Run command** (the integration tests share one DB and must be serialized):
 ```bash
 export DATABASE_URL="postgres://$(whoami)@localhost:5432/postgres?host=/tmp"
-cargo check --workspace --all-targets          # 0 errors
-cargo test --workspace --lib                    # 62+ passed
-cargo test -p payplan_core                      # 96 passed
-cargo test -p payplan_infra --features integration --tests -- --include-ignored --test-threads=1
-cargo test -p payplan_web --tests               # new auth HTTP tests
-cargo clippy --workspace --all-targets          # no new warnings
+cargo test -p payplan_web --features integration --test auth -- --include-ignored --test-threads=1
 ```
 
 ---

@@ -17,7 +17,7 @@ use payplan_core::payplan::events::{DomainEvent, EventType};
 use payplan_core::payplan::module::ModuleContext;
 use payplan_core::payplan::registry::ModuleRegistry;
 use payplan_core::payplan::runner::{StackRunResult, StackRunner, StateCache};
-use payplan_core::shared::ids::{CompanyId, EnrollmentId, PackageId, PayPlanStackId};
+use payplan_core::shared::ids::{EnrollmentId, PackageId, PayPlanStackId};
 use serde_json::json;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -108,7 +108,10 @@ pub async fn run_renewals(pool: &PgPool, deps: &PurchaseDeps<'_>) -> AppResult<u
             "leg": leg,
         });
         if let Some(nid) = node_id {
-            payload.as_object_mut().unwrap().insert("node_id".into(), json!(nid));
+            payload
+                .as_object_mut()
+                .unwrap()
+                .insert("node_id".into(), json!(nid));
         }
 
         let event = DomainEvent {
@@ -122,25 +125,26 @@ pub async fn run_renewals(pool: &PgPool, deps: &PurchaseDeps<'_>) -> AppResult<u
 
         // Bump the period using the billing plan's recurrence interval
         // (monthly/weekly/quarterly/annual; unknown falls back to monthly).
-        let interval_clause = match recurrence_interval.as_deref() {
-            Some("weekly") => "INTERVAL '7 days'",
-            Some("quarterly") => "INTERVAL '3 months'",
-            Some("annual") | Some("yearly") => "INTERVAL '1 year'",
-            _ => "INTERVAL '1 month'",
+        // Uses make_interval() with bound parameters instead of format!-built SQL.
+        let (months, days): (i32, i32) = match recurrence_interval.as_deref() {
+            Some("weekly") => (0, 7),
+            Some("quarterly") => (3, 0),
+            Some("annual") | Some("yearly") => (12, 0),
+            _ => (1, 0),
         };
-        // interval_clause is derived from a small trusted enum, not user input.
-        let update_sql = format!(
+        sqlx::query(
             r#"UPDATE subscriptions
                SET current_period_start = $1,
-                   current_period_end = $1 + {interval_clause}
-               WHERE id = $2"#
-        );
-        sqlx::query(&update_sql)
-            .bind(now)
-            .bind(sub_id)
-            .execute(pool)
-            .await
-            .map_err(|e| payplan_app::error::AppError::Infra(e.to_string()))?;
+                   current_period_end = $1 + make_interval(months => $3, days => $4)
+               WHERE id = $2"#,
+        )
+        .bind(now)
+        .bind(sub_id)
+        .bind(months)
+        .bind(days)
+        .execute(pool)
+        .await
+        .map_err(|e| payplan_app::error::AppError::Infra(e.to_string()))?;
     }
 
     Ok(count)
@@ -149,10 +153,7 @@ pub async fn run_renewals(pool: &PgPool, deps: &PurchaseDeps<'_>) -> AppResult<u
 /// Load the renewal shape (commissionable volume, points) from the package's
 /// items. Honors `is_commissionable` and multiplies by `quantity` to match the
 /// domain semantics. Returns `(total_volume, total_points)`.
-async fn load_package_renewal_shape(
-    pool: &PgPool,
-    package_id: Uuid,
-) -> AppResult<(i64, u32)> {
+async fn load_package_renewal_shape(pool: &PgPool, package_id: Uuid) -> AppResult<(i64, u32)> {
     let row: Option<(Option<i64>, Option<i32>)> = sqlx::query_as(
         r#"SELECT
               COALESCE(SUM(pi.commissionable_volume * pi.quantity)
@@ -193,8 +194,11 @@ pub async fn run_royal_pot_distribution(
 
     let processed = companies.len();
     for company_id in &companies {
-        let mut pool_conn = pool.acquire().await.map_err(|e| payplan_app::error::AppError::Infra(e.to_string()))?;
-        let mut conn: &mut sqlx::PgConnection = pool_conn.as_mut();
+        let mut pool_conn = pool
+            .acquire()
+            .await
+            .map_err(|e| payplan_app::error::AppError::Infra(e.to_string()))?;
+        let conn: &mut sqlx::PgConnection = pool_conn.as_mut();
         let event = DomainEvent {
             id: payplan_core::shared::ids::EventId::new(),
             company_id: Some(payplan_core::shared::ids::CompanyId::from(*company_id)),
@@ -202,7 +206,17 @@ pub async fn run_royal_pot_distribution(
             payload: json!({}),
             created_at: Utc::now(),
         };
-        deps.events.append(std::slice::from_ref(&event), &mut *conn).await?;
+        // The pot-distribution event is company-wide and carries no
+        // `package_id`, so `run_stack_against_event` short-circuits at its
+        // `package_id` guard without persisting anything. We therefore persist
+        // the trigger here. (No duplicate results: the early return means the
+        // function never reaches its own append.) NOTE: because of that early
+        // return the pot-bonus cascade does not actually run through this job
+        // path — see REMEDIATION_PLAN Task 5 (aggregate scoping) for the deeper
+        // fix that makes company-scoped distribution cascade properly.
+        deps.events
+            .append(std::slice::from_ref(&event), &mut *conn)
+            .await?;
         run_stack_against_event(pool, deps, &runner, &event).await?;
     }
 
@@ -217,12 +231,11 @@ pub async fn close_binary_cycles(pool: &PgPool, deps: &PurchaseDeps<'_>) -> AppR
     let registry = deps.registry.clone();
     let runner = StackRunner::new((*registry).clone());
 
-    let open: Vec<(Uuid, Uuid)> = sqlx::query_as(
-        r#"SELECT id, company_id FROM binary_cycle_periods WHERE status = 'open'"#,
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|e| payplan_app::error::AppError::Infra(e.to_string()))?;
+    let open: Vec<(Uuid, Uuid)> =
+        sqlx::query_as(r#"SELECT id, company_id FROM binary_cycle_periods WHERE status = 'open'"#)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| payplan_app::error::AppError::Infra(e.to_string()))?;
 
     let count = open.len();
     info!(open = count, "closing binary cycle periods");
@@ -241,14 +254,15 @@ pub async fn close_binary_cycles(pool: &PgPool, deps: &PurchaseDeps<'_>) -> AppR
             // Resolve the binary node for this enrollment so downstream
             // modules (pairing, carryover) and the event projector can use
             // node_id directly instead of looking it up.
-            let node_id: Option<Uuid> = sqlx::query_scalar(
-                r#"SELECT id FROM binary_nodes WHERE enrollment_id = $1"#,
-            )
-            .bind(enrollment_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(|e| payplan_app::error::AppError::Infra(format!("lookup binary_node: {e}")))?
-            .flatten();
+            let node_id: Option<Uuid> =
+                sqlx::query_scalar(r#"SELECT id FROM binary_nodes WHERE enrollment_id = $1"#)
+                    .bind(enrollment_id)
+                    .fetch_optional(pool)
+                    .await
+                    .map_err(|e| {
+                        payplan_app::error::AppError::Infra(format!("lookup binary_node: {e}"))
+                    })?
+                    .flatten();
 
             let mut payload = json!({
                 "period_id": period_id,
@@ -257,7 +271,10 @@ pub async fn close_binary_cycles(pool: &PgPool, deps: &PurchaseDeps<'_>) -> AppR
                 "package_id": package_id,
             });
             if let Some(nid) = node_id {
-                payload.as_object_mut().unwrap().insert("node_id".into(), json!(nid));
+                payload
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("node_id".into(), json!(nid));
             } else {
                 tracing::warn!(
                     enrollment_id = %enrollment_id,
@@ -306,23 +323,26 @@ async fn run_stack_against_event(
     })?;
     let package_id = PackageId::from(package_uuid);
 
-    let mut pool_conn = pool.acquire().await.map_err(|e| payplan_app::error::AppError::Infra(e.to_string()))?;
-    let mut conn: &mut sqlx::PgConnection = pool_conn.as_mut();
+    let mut pool_conn = pool
+        .acquire()
+        .await
+        .map_err(|e| payplan_app::error::AppError::Infra(e.to_string()))?;
+    let conn: &mut sqlx::PgConnection = pool_conn.as_mut();
 
-    let stack_id: Option<Uuid> = sqlx::query_scalar(
-        r#"SELECT pay_plan_stack_id FROM packages WHERE id = $1"#,
-    )
-    .bind(package_id)
-    .fetch_optional(&mut *conn)
-    .await
-    .map_err(|e| payplan_app::error::AppError::Infra(e.to_string()))?
-    .flatten();
-
-    // Always persist the triggering event so it shows up in the event log,
-    // even when the package has no pay plan stack attached.
-    deps.events.append(std::slice::from_ref(event), &mut *conn).await?;
+    let stack_id: Option<Uuid> =
+        sqlx::query_scalar(r#"SELECT pay_plan_stack_id FROM packages WHERE id = $1"#)
+            .bind(package_id)
+            .fetch_optional(&mut *conn)
+            .await
+            .map_err(|e| payplan_app::error::AppError::Infra(e.to_string()))?
+            .flatten();
 
     let Some(stack_id) = stack_id else {
+        // Stack-less package: there is no cascade, so just persist the trigger
+        // (a single INSERT — atomic on its own) and return.
+        deps.events
+            .append(std::slice::from_ref(event), &mut *conn)
+            .await?;
         return Ok(());
     };
 
@@ -349,25 +369,50 @@ async fn run_stack_against_event(
     let ctx = ctx.with_event(event.clone());
 
     let mut cache = StateCache::new();
-    // Pre-load existing module state for the aggregate (if we know enrollment).
-    if let Some(eid) = enrollment_id {
-        if let Some(store) = deps.module_state_store {
-            let existing = store.load_for_aggregate(eid.0, &mut *conn).await?;
-            for ((module_key, module_version), value) in &existing {
+    // Pre-load existing module state. Enrollment-scoped modules key state under
+    // the enrollment id (when known); company-scoped modules (binary tree/
+    // carryover, royal pot) key under the company id. We seed both namespaces;
+    // the runner picks the right one per module via `Module::scope()`.
+    if let Some(store) = deps.module_state_store {
+        if let Some(eid) = enrollment_id {
+            let by_enrollment = store.load_for_aggregate(eid.0, &mut *conn).await?;
+            for ((module_key, module_version), value) in &by_enrollment {
                 cache.put(module_key, module_version, eid.0, value.clone());
             }
         }
+        let by_company = store.load_for_aggregate(company_id.0, &mut *conn).await?;
+        for ((module_key, module_version), value) in &by_company {
+            cache.put(module_key, module_version, company_id.0, value.clone());
+        }
     }
 
+    // `emitted[0]` is the triggering event; the cascade drives module runs off
+    // it and appends any newly emitted events. Unlike the previous code, the
+    // trigger is NOT persisted before this point — the entire `emitted` vec
+    // (trigger included) is appended exactly once inside the transaction below,
+    // so there is no duplicate-key risk (Task 1) and the whole write is atomic
+    // (Task 10).
     let mut emitted = vec![event.clone()];
     let mut ledger = vec![];
     let mut state_changes: Vec<payplan_core::payplan::runner::StateChange> = vec![];
     let mut processed = 0;
+    // Hard cap to prevent a misbehaving/self-emitting module from looping
+    // forever (Path A has the same guard in commands.rs::run_stack).
+    const MAX_ITERATIONS: usize = 32;
+    let mut iterations = 0;
     while processed < emitted.len() {
+        if iterations >= MAX_ITERATIONS {
+            return Err(payplan_app::error::AppError::Conflict(format!(
+                "cascade exceeded {MAX_ITERATIONS} iterations; aborting"
+            )));
+        }
+        iterations += 1;
         let ev = emitted[processed].clone();
         processed += 1;
-        let ctx2 = ModuleContext::new(ev.company_id.unwrap_or(CompanyId::new()), ctx.package_id)
-            .with_event(ev.clone());
+        // Inherit the outer context (company + enrollment + package) and only
+        // swap the triggering event, so enrollment-scoped cascade modules keep
+        // their aggregate id. All cascade events share this run's company.
+        let ctx2 = ctx.clone().with_event(ev.clone());
         let result: AppResult<StackRunResult> = runner
             .run(&stack, &ev, &ctx2, &mut cache)
             .map_err(payplan_app::error::AppError::from);
@@ -377,11 +422,25 @@ async fn run_stack_against_event(
         state_changes.extend(result.state_changes);
     }
 
-    if !emitted.is_empty() {
-        deps.events.append(&emitted, &mut *conn).await?;
-    }
+    // All reads are done; release the pooled read connection before opening the
+    // write transaction so we never hold two connections from the pool at once.
+    drop(pool_conn);
+
+    // Atomic write+project (Task 10): event append, ledger append,
+    // module_state save, and BOTH projectors run inside ONE transaction. A
+    // failure anywhere rolls the whole thing back — no more drift where
+    // module_state is written without its projection row. Mirrors
+    // PgPurchaseWriter::write (Path A).
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| payplan_app::error::AppError::Infra(e.to_string()))?;
+
+    // Append the full `emitted` vec (trigger at [0] + cascade output) exactly
+    // once.
+    deps.events.append(&emitted, &mut tx).await?;
     if !ledger.is_empty() {
-        deps.ledger.append(&ledger, &mut *conn).await?;
+        deps.ledger.append(&ledger, &mut tx).await?;
     }
     if let Some(store) = deps.module_state_store {
         for change in &state_changes {
@@ -393,24 +452,24 @@ async fn run_stack_against_event(
                         aggregate_id: change.aggregate_id,
                         state: &change.value,
                     },
-                    &mut conn,
+                    &mut tx,
                 )
                 .await?;
         }
     }
-    // Project the same state changes into the relational tables. NOTE: Path B
-    // runs against a pooled connection without an explicit transaction, so this
-    // projection is best-effort atomic with the module_state writes above
-    // (matching the rest of Path B's semantics). Path A (PgPurchaseWriter) is
-    // fully transactional.
+    // Per-module projections (Track A2-A5).
     if let Some(projector) = deps.projector {
-        projector.project(&state_changes, conn).await?;
+        projector.project(&state_changes, &mut tx).await?;
     }
     // Event-driven projections (Track B1/B2): materialise rows from emitted
-    // events. Same Path B best-effort atomicity caveat as above.
+    // events.
     if let Some(event_projector) = deps.event_projector {
-        event_projector.project(&emitted, conn).await?;
+        event_projector.project(&emitted, &mut tx).await?;
     }
+
+    tx.commit()
+        .await
+        .map_err(|e| payplan_app::error::AppError::Infra(format!("commit: {e}")))?;
 
     Ok(())
 }

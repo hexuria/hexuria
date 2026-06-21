@@ -118,10 +118,16 @@ impl Module for BinaryPairingModule {
                     "matched": outcome.matched_volume,
                 });
                 if let Some(nid) = node_id {
-                    pair_payload.as_object_mut().unwrap().insert("node_id".into(), json!(nid));
+                    pair_payload
+                        .as_object_mut()
+                        .unwrap()
+                        .insert("node_id".into(), json!(nid));
                 }
                 if let Some(pid) = period_id {
-                    pair_payload.as_object_mut().unwrap().insert("period_id".into(), json!(pid));
+                    pair_payload
+                        .as_object_mut()
+                        .unwrap()
+                        .insert("period_id".into(), json!(pid));
                 }
                 result.emit(
                     Some(ctx.company_id),

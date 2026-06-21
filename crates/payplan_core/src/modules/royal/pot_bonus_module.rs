@@ -9,7 +9,7 @@ use crate::modules::royal::pot_bonus::{distribute, RoyalPotBonusConfig, RoyalQua
 use crate::payplan::events::EventType;
 use crate::payplan::ledger::{LedgerStatus, RewardLedgerEntry};
 use crate::payplan::module::{ModuleContext, ModuleResult};
-use crate::payplan::registry::Module;
+use crate::payplan::registry::{AggregateScope, Module};
 use crate::shared::ids::{LedgerEntryId, UserId};
 use crate::shared::money::Money;
 
@@ -48,6 +48,12 @@ impl Module for RoyalPotBonusModule {
             EventType::PackagePurchased,
             EventType::RoyalPotBonusDistributed,
         ]
+    }
+
+    /// The royal pot is a single company-wide pool; its qualification table and
+    /// balance must be shared across all enrollments in the company.
+    fn scope(&self) -> AggregateScope {
+        AggregateScope::Company
     }
 
     fn run(&self, ctx: &ModuleContext) -> CoreResult<ModuleResult> {
@@ -113,14 +119,12 @@ impl Module for RoyalPotBonusModule {
                     let ts: DateTime<Utc> = ctx.now;
                     // Per-user breakdown for the emitted event so the event
                     // projector can upsert royal_pot_bonus_balances without a
-                    // ledger lookup. Decimal amounts are converted to minor
-                    // units (i64) to match the BIGINT schema columns.
-                    let profit_share_minor: i64 =
-                        outcome.per_qualified_user.try_into().unwrap_or(0);
-                    let mut distributions: std::collections::BTreeMap<
-                        UserId,
-                        serde_json::Value,
-                    > = std::collections::BTreeMap::new();
+                    // ledger lookup. Amounts are carried as exact Decimal
+                    // strings (Task 11) — the projection columns are NUMERIC, so
+                    // no minor-unit truncation (187.5 stays 187.5).
+                    let profit_share_str = outcome.per_qualified_user.to_string();
+                    let mut distributions: std::collections::BTreeMap<UserId, serde_json::Value> =
+                        std::collections::BTreeMap::new();
                     for user_id in &qualified {
                         result.ledger_entries.push(RewardLedgerEntry {
                             id: LedgerEntryId::new(),
@@ -140,7 +144,7 @@ impl Module for RoyalPotBonusModule {
                             *user_id,
                             json!({
                                 "user_id": user_id,
-                                "profit_share": profit_share_minor,
+                                "profit_share": profit_share_str,
                             }),
                         );
                     }
@@ -166,21 +170,28 @@ impl Module for RoyalPotBonusModule {
                                 reason: format!("royal.pot_bonus.top_cycler[{i}]"),
                                 created_at: ts,
                             });
-                            let payout_minor: i64 = payout.try_into().unwrap_or(0);
                             let entry = distributions
                                 .entry(top.user_id)
                                 .or_insert_with(|| json!({ "user_id": top.user_id }));
                             entry
                                 .as_object_mut()
                                 .expect("distribution entry is an object")
-                                .insert("top_cycler".into(), json!(payout_minor));
+                                .insert("top_cycler".into(), json!(payout.to_string()));
                         }
                     }
                     let distributions_values: Vec<serde_json::Value> =
                         distributions.into_values().collect();
+                    // Emit a *terminal* settled event, NOT another
+                    // RoyalPotBonusDistributed. Re-emitting the trigger would
+                    // re-enter this handler (it's in `handles()`) and, because
+                    // the default weights make the payout vec never empty,
+                    // `distribute()` keeps returning Some forever → infinite
+                    // self-cascade (Path B has no MAX_ITERATIONS backstop
+                    // before this fix). RoyalPotBonusSettled is handled by no
+                    // module, only by the projector.
                     result.emit(
                         Some(ctx.company_id),
-                        EventType::RoyalPotBonusDistributed,
+                        EventType::RoyalPotBonusSettled,
                         json!({
                             "pool": state.pool.to_string(),
                             "qualified_count": outcome.qualified_user_count,
@@ -224,5 +235,72 @@ fn bump_qual(state: &mut PotBonusState, user: UserId, graduation: bool, cycle: b
             q.record_matrix_cycle();
         }
         state.qualifications.push(q);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::payplan::events::DomainEvent;
+    use crate::shared::ids::{CompanyId, EventId, PackageId};
+
+    fn qualified(user: UserId) -> RoyalQualification {
+        let mut q = RoyalQualification::new(user);
+        q.record_graduation();
+        q.record_matrix_cycle();
+        assert!(q.is_qualified);
+        q
+    }
+
+    /// Task 2: distributing the pot must produce ledger entries but must NOT
+    /// re-emit `RoyalPotBonusDistributed` (which would self-cascade forever).
+    /// It emits the terminal `RoyalPotBonusSettled` instead.
+    #[test]
+    fn distribution_emits_settled_not_distributed() {
+        let module = RoyalPotBonusModule::new(RoyalPotBonusConfig::default());
+        let company = CompanyId::new();
+        let user = UserId::new();
+
+        let state = PotBonusState {
+            pool: Decimal::from(1000),
+            qualifications: vec![qualified(user)],
+        };
+
+        let trigger = DomainEvent {
+            id: EventId::new(),
+            company_id: Some(company),
+            event_type: EventType::RoyalPotBonusDistributed,
+            payload: json!({}),
+            created_at: Utc::now(),
+        };
+
+        let ctx = ModuleContext::new(company, PackageId::new())
+            .with_module_state(serde_json::to_value(&state).unwrap())
+            .with_event(trigger);
+
+        let result = module.run(&ctx).expect("module run");
+
+        // Ledger entries are produced for the qualified user.
+        assert!(
+            !result.ledger_entries.is_empty(),
+            "expected ledger entries for the qualified user"
+        );
+
+        // No RoyalPotBonusDistributed is re-emitted (no self-cascade).
+        assert!(
+            result
+                .emitted_events
+                .iter()
+                .all(|e| e.event_type != EventType::RoyalPotBonusDistributed),
+            "handler must not re-emit its own trigger"
+        );
+
+        // Exactly one terminal settled event is emitted.
+        let settled = result
+            .emitted_events
+            .iter()
+            .filter(|e| e.event_type == EventType::RoyalPotBonusSettled)
+            .count();
+        assert_eq!(settled, 1, "expected exactly one RoyalPotBonusSettled");
     }
 }

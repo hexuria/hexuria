@@ -78,6 +78,12 @@ pub struct TokenClaims {
     pub jti: String,
     /// Access vs refresh.
     pub kind: TokenKind,
+    /// Issuer.
+    #[serde(default)]
+    pub iss: String,
+    /// Audience.
+    #[serde(default)]
+    pub aud: String,
     /// Expiry (unix seconds).
     pub exp: usize,
     /// Issued-at (unix seconds).
@@ -90,9 +96,19 @@ pub struct TokenClaims {
 pub trait TokenService: Send + Sync {
     /// Build a short-lived access token (caller supplies the claims shell;
     /// the service sets `kind=Access`, `iat`, and `exp`).
-    async fn issue_access(&self, sub: uuid::Uuid, company_id: Option<uuid::Uuid>, role: &str) -> AppResult<TokenClaims>;
+    async fn issue_access(
+        &self,
+        sub: uuid::Uuid,
+        company_id: Option<uuid::Uuid>,
+        role: &str,
+    ) -> AppResult<TokenClaims>;
     /// Build a long-lived refresh token.
-    async fn issue_refresh(&self, sub: uuid::Uuid, company_id: Option<uuid::Uuid>, role: &str) -> AppResult<TokenClaims>;
+    async fn issue_refresh(
+        &self,
+        sub: uuid::Uuid,
+        company_id: Option<uuid::Uuid>,
+        role: &str,
+    ) -> AppResult<TokenClaims>;
     /// Encode a claims shell into a signed token string.
     async fn encode(&self, claims: &TokenClaims) -> AppResult<String>;
     /// Decode + signature/expiry check + kind match. Returns the claims.
@@ -103,6 +119,10 @@ pub trait TokenService: Send + Sync {
 /// before their natural expiry. MUST participate in the caller's transaction.
 #[async_trait]
 pub trait RevokedJtiStore: Send + Sync {
+    /// Revoke a JTI. Returns `true` if a new row was inserted (token was not
+    /// previously revoked), `false` if the JTI was already present (idempotent
+    /// `ON CONFLICT DO NOTHING`). Callers use the boolean to detect single-use
+    /// refresh-token reuse without a separate `is_revoked` round-trip.
     async fn revoke(
         &self,
         jti: &str,
@@ -110,7 +130,7 @@ pub trait RevokedJtiStore: Send + Sync {
         kind: TokenKind,
         expires_at: chrono::DateTime<chrono::Utc>,
         conn: &mut PgConnection,
-    ) -> AppResult<()>;
+    ) -> AppResult<bool>;
     async fn is_revoked(&self, jti: &str, conn: &mut PgConnection) -> AppResult<bool>;
 }
 
@@ -126,11 +146,7 @@ pub trait ModuleStateStore: Send + Sync {
         conn: &mut PgConnection,
     ) -> AppResult<std::collections::HashMap<(String, String), serde_json::Value>>;
 
-    async fn save(
-        &self,
-        change: ModuleStateChange<'_>,
-        conn: &mut PgConnection,
-    ) -> AppResult<()>;
+    async fn save(&self, change: ModuleStateChange<'_>, conn: &mut PgConnection) -> AppResult<()>;
 }
 
 /// State change descriptor passed to [`ModuleStateStore::save`].
@@ -147,11 +163,7 @@ pub struct ModuleStateChange<'a> {
 /// in the caller's transaction.
 #[async_trait]
 pub trait ModuleProjector: Send + Sync {
-    async fn project(
-        &self,
-        changes: &[StateChange],
-        conn: &mut PgConnection,
-    ) -> AppResult<()>;
+    async fn project(&self, changes: &[StateChange], conn: &mut PgConnection) -> AppResult<()>;
 }
 
 /// Projects emitted domain events into relational tables that can't be
@@ -161,11 +173,7 @@ pub trait ModuleProjector: Send + Sync {
 /// reacts to per-aggregate state blobs.
 #[async_trait]
 pub trait EventProjector: Send + Sync {
-    async fn project(
-        &self,
-        events: &[DomainEvent],
-        conn: &mut PgConnection,
-    ) -> AppResult<()>;
+    async fn project(&self, events: &[DomainEvent], conn: &mut PgConnection) -> AppResult<()>;
 }
 
 /// Atomic purchase writer port. Implementations wrap every write (events,
@@ -209,11 +217,7 @@ pub trait CompanyRepo: Send + Sync {
 pub trait UserRepo: Send + Sync {
     async fn insert(&self, user: &User, conn: &mut PgConnection) -> AppResult<()>;
     async fn get(&self, id: UserId, conn: &mut PgConnection) -> AppResult<Option<User>>;
-    async fn find_by_email(
-        &self,
-        email: &str,
-        conn: &mut PgConnection,
-    ) -> AppResult<Option<User>>;
+    async fn find_by_email(&self, email: &str, conn: &mut PgConnection) -> AppResult<Option<User>>;
 }
 
 #[async_trait]
@@ -245,13 +249,18 @@ pub trait CatalogRepo: Send + Sync {
 pub trait PackageRepo: Send + Sync {
     async fn insert(&self, package: &Package, conn: &mut PgConnection) -> AppResult<()>;
     async fn get(&self, id: PackageId, conn: &mut PgConnection) -> AppResult<Option<Package>>;
-    async fn list(&self, company_id: CompanyId, conn: &mut PgConnection) -> AppResult<Vec<Package>>;
+    async fn list(&self, company_id: CompanyId, conn: &mut PgConnection)
+        -> AppResult<Vec<Package>>;
 }
 
 #[async_trait]
 pub trait PayPlanStackRepo: Send + Sync {
     async fn insert(&self, stack: &PayPlanStack, conn: &mut PgConnection) -> AppResult<()>;
-    async fn get(&self, id: PayPlanStackId, conn: &mut PgConnection) -> AppResult<Option<PayPlanStack>>;
+    async fn get(
+        &self,
+        id: PayPlanStackId,
+        conn: &mut PgConnection,
+    ) -> AppResult<Option<PayPlanStack>>;
     async fn next_version(
         &self,
         company_id: CompanyId,
@@ -268,11 +277,7 @@ pub trait PurchaseRepo: Send + Sync {
 
 #[async_trait]
 pub trait SubscriptionRepo: Send + Sync {
-    async fn insert(
-        &self,
-        sub: &Subscription,
-        conn: &mut PgConnection,
-    ) -> AppResult<()>;
+    async fn insert(&self, sub: &Subscription, conn: &mut PgConnection) -> AppResult<()>;
     async fn get(
         &self,
         id: SubscriptionId,
@@ -297,16 +302,9 @@ pub trait EntitlementRepo: Send + Sync {
 
 #[async_trait]
 pub trait EnrollmentRepo: Send + Sync {
-    async fn insert(
-        &self,
-        enrollment: &Enrollment,
-        conn: &mut PgConnection,
-    ) -> AppResult<()>;
-    async fn get(
-        &self,
-        id: EnrollmentId,
-        conn: &mut PgConnection,
-    ) -> AppResult<Option<Enrollment>>;
+    async fn insert(&self, enrollment: &Enrollment, conn: &mut PgConnection) -> AppResult<()>;
+    async fn get(&self, id: EnrollmentId, conn: &mut PgConnection)
+        -> AppResult<Option<Enrollment>>;
     async fn list_for_user(
         &self,
         user_id: UserId,

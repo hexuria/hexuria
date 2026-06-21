@@ -8,9 +8,11 @@
 //! - **company_admin**: CompanyAdmin or PlatformAdmin (company + catalog creation)
 //! - **platform_admin**: PlatformAdmin only (scheduled job triggers)
 
+use axum::http::Method;
 use axum::middleware::from_fn_with_state;
 use axum::routing::{get, post};
 use axum::Router;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use crate::context::AppContext;
@@ -20,9 +22,7 @@ use crate::handlers::{
     login_handler, logout_handler, purchase_package_handler, refresh_handler,
     register_user_handler, run_renewals_handler, run_royal_pot_distribution_handler,
 };
-use crate::session::{
-    require_authenticated, require_company_admin, require_platform_admin,
-};
+use crate::session::{require_authenticated, require_company_admin, require_platform_admin};
 
 pub fn build_router(ctx: AppContext) -> Router {
     // Public: no auth.
@@ -62,11 +62,27 @@ pub fn build_router(ctx: AppContext) -> Router {
         )
         .route_layer(from_fn_with_state(ctx.clone(), require_platform_admin()));
 
+    // CORS: restrictive defaults for a payments API. In production the allowed
+    // origins should come from configuration; for now deny all cross-origin
+    // requests (AllowOrigin::list with an empty iter) except when CORS_ORIGIN is
+    // set, in which case that single origin is permitted.
+    let cors = match std::env::var("CORS_ORIGIN") {
+        Ok(origin) if !origin.is_empty() => CorsLayer::new()
+            .allow_origin(AllowOrigin::exact(origin.parse().expect("valid CORS_ORIGIN header")))
+            .allow_methods([Method::GET, Method::POST])
+            .allow_headers([axum::http::header::CONTENT_TYPE, axum::http::header::AUTHORIZATION]),
+        _ => CorsLayer::new()
+            .allow_origin(AllowOrigin::list(std::iter::empty::<axum::http::HeaderValue>()))
+            .allow_methods([Method::GET, Method::POST])
+            .allow_headers([axum::http::header::CONTENT_TYPE, axum::http::header::AUTHORIZATION]),
+    };
+
     Router::new()
         .merge(public)
         .merge(authenticated)
         .merge(company_admin)
         .merge(platform_admin)
         .with_state(ctx)
+        .layer(cors)
         .layer(TraceLayer::new_for_http())
 }

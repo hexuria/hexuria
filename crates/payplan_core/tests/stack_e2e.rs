@@ -400,23 +400,31 @@ fn binary_carryover_emits_update_event_on_cycle_close() {
     let pkg = PackageId::new();
     let stack = build_binary_stack(company_id);
 
-    let cycle_event = DomainEvent {
+    // Carryover now consumes the pairing module's `BinaryPairMatched` output
+    // (which carries left/right/matched) rather than reading state that was
+    // never written (Task 8). Feed that event directly: matched=30 of left=50,
+    // right=30 → unmatched left=20 carries.
+    let pair_event = DomainEvent {
         id: payplan_core::shared::ids::EventId::new(),
         company_id: Some(company_id),
-        event_type: EventType::BinaryCycleClosed,
-        payload: json!({ "node_user_id": UserId::new() }),
+        event_type: EventType::BinaryPairMatched,
+        payload: json!({
+            "node_user_id": UserId::new(),
+            "left": 50,
+            "right": 30,
+            "matched": 30,
+        }),
         created_at: Utc::now(),
     };
     let ctx = ModuleContext::new(company_id, pkg)
         .with_aggregate(uuid::Uuid::now_v7())
-        .with_event(cycle_event.clone())
+        .with_event(pair_event.clone())
         .with_module_state(json!({
             "carry": { "left_volume": 0, "right_volume": 0 },
-            "last_unmatched": { "left": 20, "right": 50 },
         }));
 
     let result = runner
-        .run(&stack, &cycle_event, &ctx, &mut StateCache::new())
+        .run(&stack, &pair_event, &ctx, &mut StateCache::new())
         .unwrap();
     assert!(result
         .emitted_events

@@ -58,11 +58,7 @@ impl ModuleStateStore for PgModuleStateStore {
         Ok(out)
     }
 
-    async fn save(
-        &self,
-        change: ModuleStateChange<'_>,
-        conn: &mut PgConnection,
-    ) -> AppResult<()> {
+    async fn save(&self, change: ModuleStateChange<'_>, conn: &mut PgConnection) -> AppResult<()> {
         sqlx::query(
             r#"INSERT INTO module_state (module_key, module_version, aggregate_id, state, updated_at)
                VALUES ($1, $2, $3, $4, NOW())

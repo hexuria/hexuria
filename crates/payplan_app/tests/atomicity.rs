@@ -49,14 +49,25 @@ struct InMemoryStores {
 
 #[async_trait]
 impl CompanyRepo for InMemoryStores {
-    async fn insert(&self, c: &Company, _conn: &mut sqlx::PgConnection) -> payplan_app::error::AppResult<()> {
+    async fn insert(
+        &self,
+        c: &Company,
+        _conn: &mut sqlx::PgConnection,
+    ) -> payplan_app::error::AppResult<()> {
         self.companies.lock().unwrap().insert(c.id.0, c.clone());
         Ok(())
     }
-    async fn get(&self, id: CompanyId, _conn: &mut sqlx::PgConnection) -> payplan_app::error::AppResult<Option<Company>> {
+    async fn get(
+        &self,
+        id: CompanyId,
+        _conn: &mut sqlx::PgConnection,
+    ) -> payplan_app::error::AppResult<Option<Company>> {
         Ok(self.companies.lock().unwrap().get(&id.0).cloned())
     }
-    async fn list(&self, _conn: &mut sqlx::PgConnection) -> payplan_app::error::AppResult<Vec<Company>> {
+    async fn list(
+        &self,
+        _conn: &mut sqlx::PgConnection,
+    ) -> payplan_app::error::AppResult<Vec<Company>> {
         Ok(self.companies.lock().unwrap().values().cloned().collect())
     }
 }
@@ -89,7 +100,11 @@ impl UserRepo for InMemoryStores {
 
 #[async_trait]
 impl CatalogRepo for InMemoryStores {
-    async fn insert_item(&self, i: &CatalogItem, _conn: &mut sqlx::PgConnection) -> payplan_app::error::AppResult<()> {
+    async fn insert_item(
+        &self,
+        i: &CatalogItem,
+        _conn: &mut sqlx::PgConnection,
+    ) -> payplan_app::error::AppResult<()> {
         self.catalog_items.lock().unwrap().insert(i.id.0, i.clone());
         Ok(())
     }
@@ -100,7 +115,11 @@ impl CatalogRepo for InMemoryStores {
     ) -> payplan_app::error::AppResult<Option<CatalogItem>> {
         Ok(self.catalog_items.lock().unwrap().get(&id.0).cloned())
     }
-    async fn list_items(&self, c: CompanyId, _conn: &mut sqlx::PgConnection) -> payplan_app::error::AppResult<Vec<CatalogItem>> {
+    async fn list_items(
+        &self,
+        c: CompanyId,
+        _conn: &mut sqlx::PgConnection,
+    ) -> payplan_app::error::AppResult<Vec<CatalogItem>> {
         Ok(self
             .catalog_items
             .lock()
@@ -110,7 +129,11 @@ impl CatalogRepo for InMemoryStores {
             .cloned()
             .collect())
     }
-    async fn insert_billing_plan(&self, p: &BillingPlan, _conn: &mut sqlx::PgConnection) -> payplan_app::error::AppResult<()> {
+    async fn insert_billing_plan(
+        &self,
+        p: &BillingPlan,
+        _conn: &mut sqlx::PgConnection,
+    ) -> payplan_app::error::AppResult<()> {
         self.billing_plans.lock().unwrap().insert(p.id.0, p.clone());
         Ok(())
     }
@@ -125,28 +148,53 @@ impl CatalogRepo for InMemoryStores {
 
 #[async_trait]
 impl PackageRepo for InMemoryStores {
-    async fn insert(&self, p: &Package, _conn: &mut sqlx::PgConnection) -> payplan_app::error::AppResult<()> {
+    async fn insert(
+        &self,
+        p: &Package,
+        _conn: &mut sqlx::PgConnection,
+    ) -> payplan_app::error::AppResult<()> {
         self.packages.lock().unwrap().insert(p.id.0, p.clone());
         Ok(())
     }
-    async fn get(&self, id: PackageId, _conn: &mut sqlx::PgConnection) -> payplan_app::error::AppResult<Option<Package>> {
+    async fn get(
+        &self,
+        id: PackageId,
+        _conn: &mut sqlx::PgConnection,
+    ) -> payplan_app::error::AppResult<Option<Package>> {
         Ok(self.packages.lock().unwrap().get(&id.0).cloned())
     }
-    async fn list(&self, _c: CompanyId, _conn: &mut sqlx::PgConnection) -> payplan_app::error::AppResult<Vec<Package>> {
+    async fn list(
+        &self,
+        _c: CompanyId,
+        _conn: &mut sqlx::PgConnection,
+    ) -> payplan_app::error::AppResult<Vec<Package>> {
         Ok(self.packages.lock().unwrap().values().cloned().collect())
     }
 }
 
 #[async_trait]
 impl PayPlanStackRepo for InMemoryStores {
-    async fn insert(&self, s: &PayPlanStack, _conn: &mut sqlx::PgConnection) -> payplan_app::error::AppResult<()> {
+    async fn insert(
+        &self,
+        s: &PayPlanStack,
+        _conn: &mut sqlx::PgConnection,
+    ) -> payplan_app::error::AppResult<()> {
         self.stacks.lock().unwrap().insert(s.id.0, s.clone());
         Ok(())
     }
-    async fn get(&self, id: PayPlanStackId, _conn: &mut sqlx::PgConnection) -> payplan_app::error::AppResult<Option<PayPlanStack>> {
+    async fn get(
+        &self,
+        id: PayPlanStackId,
+        _conn: &mut sqlx::PgConnection,
+    ) -> payplan_app::error::AppResult<Option<PayPlanStack>> {
         Ok(self.stacks.lock().unwrap().get(&id.0).cloned())
     }
-    async fn next_version(&self, _c: CompanyId, _name: &str, _conn: &mut sqlx::PgConnection) -> payplan_app::error::AppResult<u32> {
+    async fn next_version(
+        &self,
+        _c: CompanyId,
+        _name: &str,
+        _conn: &mut sqlx::PgConnection,
+    ) -> payplan_app::error::AppResult<u32> {
         Ok(1)
     }
 }
@@ -266,7 +314,11 @@ impl EnrollmentRepo for InMemoryStores {
 
 #[async_trait]
 impl EventStore for InMemoryStores {
-    async fn append(&self, events: &[DomainEvent], _conn: &mut sqlx::PgConnection) -> payplan_app::error::AppResult<()> {
+    async fn append(
+        &self,
+        events: &[DomainEvent],
+        _conn: &mut sqlx::PgConnection,
+    ) -> payplan_app::error::AppResult<()> {
         self.events.lock().unwrap().extend_from_slice(events);
         Ok(())
     }
@@ -394,8 +446,6 @@ async fn empty_stack_leaves_no_orphan_rows() {
         user_id,
         package_id,
         sponsor_user_id: None,
-        payment_currency: "USD".into(),
-        gross_amount: dec!(99.00),
     };
     let deps = PurchaseDeps {
         pool: &sqlx::PgPool::connect_lazy("postgres://x@y/z").unwrap(),
@@ -506,8 +556,6 @@ async fn unknown_billing_plan_returns_validation_before_insert() {
         user_id: user.id,
         package_id: package.id,
         sponsor_user_id: None,
-        payment_currency: "USD".into(),
-        gross_amount: dec!(99.00),
     };
 
     stores.catalog_items.lock().unwrap().insert(item.id.0, item);

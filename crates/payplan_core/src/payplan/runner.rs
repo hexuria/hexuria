@@ -153,14 +153,21 @@ impl StackRunner {
                 continue;
             }
 
-            // Resolve the aggregate for state I/O. Modules can override via
-            // `ctx.aggregate_id` (set by the caller) or fall back to the
-            // enrollment id.
-            let Some(aggregate_id) = ctx.state_aggregate() else {
-                return Err(CoreError::Validation(format!(
-                    "module {}@{} requires an aggregate_id; none set in context",
-                    stack_module.module_key, stack_module.module_version
-                )));
+            // Resolve the aggregate for state I/O based on the module's scope.
+            // Company-scoped modules (binary tree/carryover, royal pot) share
+            // one state row per company; everything else scopes to the
+            // enrollment (falling back via `ctx.state_aggregate()`).
+            let aggregate_id = match module.scope() {
+                crate::payplan::registry::AggregateScope::Company => ctx.company_id.0,
+                crate::payplan::registry::AggregateScope::Enrollment => {
+                    let Some(aggregate_id) = ctx.state_aggregate() else {
+                        return Err(CoreError::Validation(format!(
+                            "module {}@{} requires an aggregate_id; none set in context",
+                            stack_module.module_key, stack_module.module_version
+                        )));
+                    };
+                    aggregate_id
+                }
             };
 
             // Build a per-module context with the cached state and config.

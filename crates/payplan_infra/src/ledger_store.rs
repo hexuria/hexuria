@@ -5,16 +5,15 @@ use payplan_app::error::{AppError, AppResult};
 use payplan_app::ports::RewardLedgerStore;
 use payplan_core::payplan::ledger::{LedgerStatus, RewardLedgerEntry};
 use payplan_core::shared::ids::LedgerEntryId;
-use sqlx::{PgConnection, PgPool};
+use sqlx::PgConnection;
 
-pub struct PgLedgerStore {
-    pool: PgPool,
-}
+#[derive(Default)]
+pub struct PgLedgerStore {}
 
 impl PgLedgerStore {
     #[must_use]
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 

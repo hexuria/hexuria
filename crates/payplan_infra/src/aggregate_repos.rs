@@ -19,18 +19,17 @@ use payplan_core::shared::ids::{
     SubscriptionId, UserId,
 };
 use serde_json::Value;
-use sqlx::{PgConnection, PgPool, Row};
+use sqlx::{PgConnection, Row};
 
 // ------------------------------- Catalog ------------------------------------
 
-pub struct PgCatalogRepo {
-    pool: PgPool,
-}
+#[derive(Default)]
+pub struct PgCatalogRepo {}
 
 impl PgCatalogRepo {
     #[must_use]
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -61,7 +60,11 @@ impl CatalogRepo for PgCatalogRepo {
         Ok(())
     }
 
-    async fn get_item(&self, id: CatalogItemId, conn: &mut PgConnection) -> AppResult<Option<CatalogItem>> {
+    async fn get_item(
+        &self,
+        id: CatalogItemId,
+        conn: &mut PgConnection,
+    ) -> AppResult<Option<CatalogItem>> {
         let row = sqlx::query(
             r#"SELECT id, company_id, name, description, item_type, sku, status, metadata, created_at
                FROM catalog_items WHERE id = $1"#,
@@ -73,7 +76,11 @@ impl CatalogRepo for PgCatalogRepo {
         row.map(row_to_catalog_item).transpose()
     }
 
-    async fn list_items(&self, company_id: CompanyId, conn: &mut PgConnection) -> AppResult<Vec<CatalogItem>> {
+    async fn list_items(
+        &self,
+        company_id: CompanyId,
+        conn: &mut PgConnection,
+    ) -> AppResult<Vec<CatalogItem>> {
         let rows = sqlx::query(
             r#"SELECT id, company_id, name, description, item_type, sku, status, metadata, created_at
                FROM catalog_items WHERE company_id = $1 ORDER BY created_at DESC"#,
@@ -85,7 +92,11 @@ impl CatalogRepo for PgCatalogRepo {
         rows.into_iter().map(row_to_catalog_item).collect()
     }
 
-    async fn insert_billing_plan(&self, plan: &BillingPlan, conn: &mut PgConnection) -> AppResult<()> {
+    async fn insert_billing_plan(
+        &self,
+        plan: &BillingPlan,
+        conn: &mut PgConnection,
+    ) -> AppResult<()> {
         let billing_type = match plan.billing_type {
             BillingType::OneTime => "one_time",
             BillingType::Recurring => "recurring",
@@ -120,7 +131,11 @@ impl CatalogRepo for PgCatalogRepo {
         Ok(())
     }
 
-    async fn get_billing_plan(&self, id: BillingPlanId, conn: &mut PgConnection) -> AppResult<Option<BillingPlan>> {
+    async fn get_billing_plan(
+        &self,
+        id: BillingPlanId,
+        conn: &mut PgConnection,
+    ) -> AppResult<Option<BillingPlan>> {
         let row = sqlx::query(
             r#"SELECT id, catalog_item_id, billing_type, price_amount, currency, recurrence_interval, recurrence_count, trial_days, grace_period_days, active, created_at
                FROM billing_plans WHERE id = $1"#,
@@ -293,26 +308,19 @@ fn row_to_billing_plan(row: sqlx::postgres::PgRow) -> AppResult<BillingPlan> {
 
 // ------------------------------- Package ------------------------------------
 
-pub struct PgPackageRepo {
-    pool: PgPool,
-}
+#[derive(Default)]
+pub struct PgPackageRepo {}
 
 impl PgPackageRepo {
     #[must_use]
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
 #[async_trait]
 impl PackageRepo for PgPackageRepo {
     async fn insert(&self, package: &Package, conn: &mut PgConnection) -> AppResult<()> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| AppError::Infra(e.to_string()))?;
-
         sqlx::query(
             r#"INSERT INTO packages (id, company_id, pay_plan_stack_id, name, description, status, metadata, created_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
@@ -325,7 +333,7 @@ impl PackageRepo for PgPackageRepo {
         .bind(package_status_str(package.status))
         .bind(&package.metadata)
         .bind(package.created_at)
-        .execute(&mut *tx)
+        .execute(&mut *conn)
         .await
         .map_err(|e| AppError::Infra(e.to_string()))?;
 
@@ -343,14 +351,11 @@ impl PackageRepo for PgPackageRepo {
             .bind(item.is_commissionable)
             .bind(i32::try_from(item.commissionable_volume).unwrap_or(i32::MAX))
             .bind(i32::try_from(item.points_value).unwrap_or(i32::MAX))
-            .execute(&mut *tx)
+            .execute(&mut *conn)
             .await
             .map_err(|e| AppError::Infra(e.to_string()))?;
         }
 
-        tx.commit()
-            .await
-            .map_err(|e| AppError::Infra(e.to_string()))?;
         Ok(())
     }
 
@@ -382,7 +387,11 @@ impl PackageRepo for PgPackageRepo {
         Ok(Some(Package { items, ..package }))
     }
 
-    async fn list(&self, company_id: CompanyId, conn: &mut PgConnection) -> AppResult<Vec<Package>> {
+    async fn list(
+        &self,
+        company_id: CompanyId,
+        conn: &mut PgConnection,
+    ) -> AppResult<Vec<Package>> {
         let rows = sqlx::query(
             r#"SELECT id, company_id, pay_plan_stack_id, name, description, status, metadata, created_at
                FROM packages WHERE company_id = $1 ORDER BY created_at DESC"#,
@@ -503,25 +512,19 @@ fn row_to_package_item(row: sqlx::postgres::PgRow) -> AppResult<PackageItem> {
 
 // ----------------------------- PayPlanStack ---------------------------------
 
-pub struct PgPayPlanStackRepo {
-    pool: PgPool,
-}
+#[derive(Default)]
+pub struct PgPayPlanStackRepo {}
 
 impl PgPayPlanStackRepo {
     #[must_use]
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
 #[async_trait]
 impl PayPlanStackRepo for PgPayPlanStackRepo {
     async fn insert(&self, stack: &PayPlanStack, conn: &mut PgConnection) -> AppResult<()> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| AppError::Infra(e.to_string()))?;
         sqlx::query(
             r#"INSERT INTO pay_plan_stacks (id, company_id, name, version, status, created_at)
                VALUES ($1, $2, $3, $4, $5, $6)"#,
@@ -532,7 +535,7 @@ impl PayPlanStackRepo for PgPayPlanStackRepo {
         .bind(i32::try_from(stack.version).unwrap_or(i32::MAX))
         .bind(stack_status_str(stack.status))
         .bind(stack.created_at)
-        .execute(&mut *tx)
+        .execute(&mut *conn)
         .await
         .map_err(|e| AppError::Infra(e.to_string()))?;
 
@@ -548,17 +551,18 @@ impl PayPlanStackRepo for PgPayPlanStackRepo {
             .bind(i32::try_from(m.sort_order).unwrap_or(i32::MAX))
             .bind(&m.config)
             .bind(m.active)
-            .execute(&mut *tx)
+            .execute(&mut *conn)
             .await
             .map_err(|e| AppError::Infra(e.to_string()))?;
         }
-        tx.commit()
-            .await
-            .map_err(|e| AppError::Infra(e.to_string()))?;
         Ok(())
     }
 
-    async fn get(&self, id: PayPlanStackId, conn: &mut PgConnection) -> AppResult<Option<PayPlanStack>> {
+    async fn get(
+        &self,
+        id: PayPlanStackId,
+        conn: &mut PgConnection,
+    ) -> AppResult<Option<PayPlanStack>> {
         let row = sqlx::query(
             r#"SELECT id, company_id, name, version, status, created_at
                FROM pay_plan_stacks WHERE id = $1"#,
@@ -586,7 +590,12 @@ impl PayPlanStackRepo for PgPayPlanStackRepo {
         Ok(Some(PayPlanStack { modules, ..stack }))
     }
 
-    async fn next_version(&self, company_id: CompanyId, name: &str, conn: &mut PgConnection) -> AppResult<u32> {
+    async fn next_version(
+        &self,
+        company_id: CompanyId,
+        name: &str,
+        conn: &mut PgConnection,
+    ) -> AppResult<u32> {
         let row = sqlx::query(
             r#"SELECT COALESCE(MAX(version), 0) AS max_version
                FROM pay_plan_stacks WHERE company_id = $1 AND name = $2"#,
@@ -677,14 +686,13 @@ fn row_to_stack_module(row: sqlx::postgres::PgRow) -> AppResult<StackModule> {
 
 // ------------------------------ Purchase ------------------------------------
 
-pub struct PgPurchaseRepo {
-    pool: PgPool,
-}
+#[derive(Default)]
+pub struct PgPurchaseRepo {}
 
 impl PgPurchaseRepo {
     #[must_use]
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -788,14 +796,13 @@ fn row_to_purchase(row: sqlx::postgres::PgRow) -> AppResult<Purchase> {
 
 // ----------------------------- Subscription ---------------------------------
 
-pub struct PgSubscriptionRepo {
-    pool: PgPool,
-}
+#[derive(Default)]
+pub struct PgSubscriptionRepo {}
 
 impl PgSubscriptionRepo {
     #[must_use]
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -833,7 +840,11 @@ impl SubscriptionRepo for PgSubscriptionRepo {
         Ok(())
     }
 
-    async fn get(&self, id: SubscriptionId, conn: &mut PgConnection) -> AppResult<Option<Subscription>> {
+    async fn get(
+        &self,
+        id: SubscriptionId,
+        conn: &mut PgConnection,
+    ) -> AppResult<Option<Subscription>> {
         let row = sqlx::query(
             r#"SELECT id, company_id, user_id, package_id, billing_plan_id, status, current_period_start, current_period_end, cancelled_at, created_at
                FROM subscriptions WHERE id = $1"#,
@@ -845,7 +856,11 @@ impl SubscriptionRepo for PgSubscriptionRepo {
         row.map(row_to_subscription).transpose()
     }
 
-    async fn list_active_for_user(&self, user_id: UserId, conn: &mut PgConnection) -> AppResult<Vec<Subscription>> {
+    async fn list_active_for_user(
+        &self,
+        user_id: UserId,
+        conn: &mut PgConnection,
+    ) -> AppResult<Vec<Subscription>> {
         let rows = sqlx::query(
             r#"SELECT id, company_id, user_id, package_id, billing_plan_id, status, current_period_start, current_period_end, cancelled_at, created_at
                FROM subscriptions WHERE user_id = $1 AND status = 'active'"#,
@@ -914,14 +929,13 @@ fn row_to_subscription(row: sqlx::postgres::PgRow) -> AppResult<Subscription> {
 
 // ------------------------------ Entitlement ---------------------------------
 
-pub struct PgEntitlementRepo {
-    pool: PgPool,
-}
+#[derive(Default)]
+pub struct PgEntitlementRepo {}
 
 impl PgEntitlementRepo {
     #[must_use]
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -955,7 +969,11 @@ impl EntitlementRepo for PgEntitlementRepo {
         Ok(())
     }
 
-    async fn list_for_user(&self, user_id: UserId, conn: &mut PgConnection) -> AppResult<Vec<Entitlement>> {
+    async fn list_for_user(
+        &self,
+        user_id: UserId,
+        conn: &mut PgConnection,
+    ) -> AppResult<Vec<Entitlement>> {
         let rows = sqlx::query(
             r#"SELECT id, company_id, user_id, package_id, catalog_item_id, source_purchase_id, source_subscription_id, status, starts_at, ends_at, revoked_at
                FROM entitlements WHERE user_id = $1 ORDER BY starts_at DESC"#,
@@ -1029,14 +1047,13 @@ fn row_to_entitlement(row: sqlx::postgres::PgRow) -> AppResult<Entitlement> {
 
 // ------------------------------ Enrollment ----------------------------------
 
-pub struct PgEnrollmentRepo {
-    pool: PgPool,
-}
+#[derive(Default)]
+pub struct PgEnrollmentRepo {}
 
 impl PgEnrollmentRepo {
     #[must_use]
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -1067,7 +1084,11 @@ impl EnrollmentRepo for PgEnrollmentRepo {
         Ok(())
     }
 
-    async fn get(&self, id: EnrollmentId, conn: &mut PgConnection) -> AppResult<Option<Enrollment>> {
+    async fn get(
+        &self,
+        id: EnrollmentId,
+        conn: &mut PgConnection,
+    ) -> AppResult<Option<Enrollment>> {
         let row = sqlx::query(
             r#"SELECT id, company_id, user_id, package_id, purchase_id, sponsor_user_id, status, joined_at
                FROM enrollments WHERE id = $1"#,
@@ -1079,7 +1100,11 @@ impl EnrollmentRepo for PgEnrollmentRepo {
         row.map(row_to_enrollment).transpose()
     }
 
-    async fn list_for_user(&self, user_id: UserId, conn: &mut PgConnection) -> AppResult<Vec<Enrollment>> {
+    async fn list_for_user(
+        &self,
+        user_id: UserId,
+        conn: &mut PgConnection,
+    ) -> AppResult<Vec<Enrollment>> {
         let rows = sqlx::query(
             r#"SELECT id, company_id, user_id, package_id, purchase_id, sponsor_user_id, status, joined_at
                FROM enrollments WHERE user_id = $1 ORDER BY joined_at DESC"#,

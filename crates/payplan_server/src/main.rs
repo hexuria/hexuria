@@ -35,17 +35,21 @@ async fn main() -> Result<()> {
     info!("running migrations");
     migrator::run(&pool).await.context("migrations failed")?;
 
-    // JWT secret: required in release builds, dev default allowed otherwise.
+    // JWT secret: required in release builds; dev fallback only compiled in debug.
     let jwt_secret = match std::env::var("JWT_SECRET") {
         Ok(s) if !s.is_empty() => s,
-        other => {
-            if cfg!(not(debug_assertions)) {
+        _other => {
+            #[cfg(not(debug_assertions))]
+            {
                 anyhow::bail!(
-                    "JWT_SECRET must be set to a non-empty value in release builds (got {other:?})"
+                    "JWT_SECRET must be set to a non-empty value in release builds"
                 );
             }
-            warn!("JWT_SECRET unset — using insecure dev default; do NOT use in production");
-            AppContext::dev_jwt_secret()
+            #[cfg(debug_assertions)]
+            {
+                warn!("JWT_SECRET unset — using insecure dev default; do NOT use in production");
+                AppContext::dev_jwt_secret()
+            }
         }
     };
 

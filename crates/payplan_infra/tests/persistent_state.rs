@@ -171,6 +171,171 @@ async fn flushline_state_persists_across_cascades() {
     assert!(graduated, "graduated at 15 cumulative points");
 }
 
+fn binary_tree_registry() -> Arc<ModuleRegistry> {
+    let mut r = ModuleRegistry::new();
+    r.register(
+        payplan_core::modules::binary::tree_module::BinaryTreeModule::new(Default::default()),
+    );
+    Arc::new(r)
+}
+
+fn binary_tree_stack(stack_id: PayPlanStackId, company_id: CompanyId) -> PayPlanStack {
+    PayPlanStack {
+        id: stack_id,
+        company_id,
+        name: "Binary Tree Test".into(),
+        version: 1,
+        status: PayPlanStackStatus::Active,
+        modules: vec![StackModule {
+            module_key: "binary.tree".into(),
+            module_version: "1.0.0".into(),
+            sort_order: 10,
+            config: json!({}),
+            active: true,
+        }],
+        created_at: Utc::now(),
+    }
+}
+
+fn enrollment_created_event(
+    company_id: CompanyId,
+    user_id: UserId,
+    package_id: PackageId,
+    enrollment_id: EnrollmentId,
+    sponsor: Option<UserId>,
+) -> DomainEvent {
+    DomainEvent {
+        id: payplan_core::shared::ids::EventId::new(),
+        company_id: Some(company_id),
+        event_type: EventType::EnrollmentCreated,
+        payload: json!({
+            "user_id": user_id,
+            "package_id": package_id,
+            "enrollment_id": enrollment_id,
+            "sponsor_user_id": sponsor,
+        }),
+        created_at: Utc::now(),
+    }
+}
+
+/// Task 5: the binary tree is company-scoped, so two enrollments under the same
+/// company form ONE shared tree — the second is placed *under* the first, not
+/// as a second root. Each enrollment is a separate engine run with its own
+/// cache (as in two separate purchases); the company-scoped state must persist
+/// and reload between them. Also exercises Task 12: the reloaded tree's
+/// `user_to_node` index must be rebuilt so the second placement sees the first.
+#[tokio::test]
+async fn binary_tree_is_company_scoped_and_forms_one_tree() {
+    let pool = pool().await;
+    truncate_all(&pool).await;
+    let store = PgModuleStateStore::new(pool.clone());
+
+    let company_id = CompanyId::new();
+    let package_id = PackageId::new();
+    let stack_id = PayPlanStackId::new();
+    let stack = binary_tree_stack(stack_id, company_id);
+    let registry = binary_tree_registry();
+    let runner = StackRunner::new((*registry).clone());
+
+    let user_a = UserId::new();
+    let user_b = UserId::new();
+    let enroll_a = EnrollmentId::new();
+    let enroll_b = EnrollmentId::new();
+
+    // Two purchases: B is sponsored by A. company-scoped tree state lives under
+    // company_id.0 regardless of which enrollment triggered the placement.
+    let purchases = [
+        (user_a, enroll_a, None),
+        (user_b, enroll_b, Some(user_a)),
+    ];
+
+    for (user_id, enrollment_id, sponsor) in purchases {
+        // Reload state from BOTH namespaces, as the real driver does.
+        let mut conn = pool.acquire().await.expect("acquire");
+        let mut cache = StateCache::new();
+        for ((k, v), val) in &store
+            .load_for_aggregate(enrollment_id.0, &mut conn)
+            .await
+            .expect("load enrollment")
+        {
+            cache.put(k, v, enrollment_id.0, val.clone());
+        }
+        for ((k, v), val) in &store
+            .load_for_aggregate(company_id.0, &mut conn)
+            .await
+            .expect("load company")
+        {
+            cache.put(k, v, company_id.0, val.clone());
+        }
+        drop(conn);
+
+        let event =
+            enrollment_created_event(company_id, user_id, package_id, enrollment_id, sponsor);
+        let ctx = ModuleContext::new(company_id, package_id)
+            .with_enrollment(enrollment_id)
+            .with_event(event.clone());
+        let result = runner.run(&stack, &event, &ctx, &mut cache).expect("run");
+
+        let mut conn = pool.acquire().await.expect("acquire");
+        for change in result.state_changes {
+            // Company-scoped module must persist under the company aggregate.
+            assert_eq!(
+                change.aggregate_id, company_id.0,
+                "binary.tree state must be keyed to the company"
+            );
+            store
+                .save(
+                    ModuleStateChange {
+                        module_key: &change.module_key,
+                        module_version: &change.module_version,
+                        aggregate_id: change.aggregate_id,
+                        state: &change.value,
+                    },
+                    &mut conn,
+                )
+                .await
+                .expect("save");
+        }
+    }
+
+    // Exactly ONE company-scoped tree row exists, with two nodes.
+    let rows = sqlx::query("SELECT aggregate_id FROM module_state WHERE module_key = 'binary.tree'")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1, "one shared company-scoped tree row");
+
+    let state: serde_json::Value = sqlx::query_scalar(
+        "SELECT state FROM module_state WHERE module_key = 'binary.tree' AND aggregate_id = $1",
+    )
+    .bind(company_id.0)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    let nodes = state.get("nodes").and_then(|n| n.as_array()).unwrap();
+    assert_eq!(nodes.len(), 2, "both enrollments placed in the same tree");
+
+    // First node is the root; second is placed under it (not a second root).
+    let node_a = nodes
+        .iter()
+        .find(|n| n.get("user_id") == Some(&json!(user_a)))
+        .expect("node a present");
+    let node_b = nodes
+        .iter()
+        .find(|n| n.get("user_id") == Some(&json!(user_b)))
+        .expect("node b present");
+    assert!(
+        node_a.get("parent_node_id").map(|v| v.is_null()).unwrap_or(true),
+        "first enrollment is the root"
+    );
+    assert_eq!(
+        node_b.get("parent_node_id"),
+        node_a.get("id"),
+        "second enrollment is placed under the first, not as a second root"
+    );
+}
+
 #[tokio::test]
 async fn state_is_isolated_per_aggregate() {
     let pool = pool().await;

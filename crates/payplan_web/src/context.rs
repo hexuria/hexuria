@@ -54,19 +54,17 @@ impl AppContext {
     pub fn new(pool: PgPool, jwt_secret: String) -> Self {
         let registry = Arc::new(default_module_registry());
 
-        let companies: Arc<dyn CompanyRepo> = Arc::new(PgCompanyRepo::new(pool.clone()));
-        let users: Arc<dyn UserRepo> = Arc::new(PgUserRepo::new(pool.clone()));
-        let catalog: Arc<dyn CatalogRepo> = Arc::new(PgCatalogRepo::new(pool.clone()));
-        let packages: Arc<dyn PackageRepo> = Arc::new(PgPackageRepo::new(pool.clone()));
-        let pay_plan_stacks: Arc<dyn PayPlanStackRepo> =
-            Arc::new(PgPayPlanStackRepo::new(pool.clone()));
-        let purchases: Arc<dyn PurchaseRepo> = Arc::new(PgPurchaseRepo::new(pool.clone()));
-        let subscriptions: Arc<dyn SubscriptionRepo> =
-            Arc::new(PgSubscriptionRepo::new(pool.clone()));
-        let entitlements: Arc<dyn EntitlementRepo> = Arc::new(PgEntitlementRepo::new(pool.clone()));
-        let enrollments: Arc<dyn EnrollmentRepo> = Arc::new(PgEnrollmentRepo::new(pool.clone()));
+        let companies: Arc<dyn CompanyRepo> = Arc::new(PgCompanyRepo::new());
+        let users: Arc<dyn UserRepo> = Arc::new(PgUserRepo::new());
+        let catalog: Arc<dyn CatalogRepo> = Arc::new(PgCatalogRepo::new());
+        let packages: Arc<dyn PackageRepo> = Arc::new(PgPackageRepo::new());
+        let pay_plan_stacks: Arc<dyn PayPlanStackRepo> = Arc::new(PgPayPlanStackRepo::new());
+        let purchases: Arc<dyn PurchaseRepo> = Arc::new(PgPurchaseRepo::new());
+        let subscriptions: Arc<dyn SubscriptionRepo> = Arc::new(PgSubscriptionRepo::new());
+        let entitlements: Arc<dyn EntitlementRepo> = Arc::new(PgEntitlementRepo::new());
+        let enrollments: Arc<dyn EnrollmentRepo> = Arc::new(PgEnrollmentRepo::new());
         let events: Arc<dyn EventStore> = Arc::new(PgEventStore::new(pool.clone()));
-        let ledger: Arc<dyn RewardLedgerStore> = Arc::new(PgLedgerStore::new(pool.clone()));
+        let ledger: Arc<dyn RewardLedgerStore> = Arc::new(PgLedgerStore::new());
         let passwords: Arc<dyn PasswordPort> = Arc::new(PasswordService::new());
         let purchase_writer: Arc<dyn PurchaseWriter> =
             Arc::new(PgPurchaseWriter::new(pool.clone()));
@@ -103,16 +101,9 @@ impl AppContext {
         }
     }
 
-    /// Convenience constructor that connects lazily. Used in dev/main.
-    /// Uses a dev-default JWT secret; production must call [`AppContext::new`]
-    /// with a secret from a secure source.
-    #[must_use]
-    pub fn from_lazy_pool(pool: PgPool) -> Self {
-        Self::new(pool, Self::dev_jwt_secret())
-    }
-
-    /// Dev/default JWT secret. ONLY safe for local development; production
-    /// deployments must supply a strong secret via `AppContext::new`.
+    /// Dev/default JWT secret. Available only in debug builds so the hardcoded
+    /// fallback can never be compiled into a release binary.
+    #[cfg(debug_assertions)]
     #[must_use]
     pub fn dev_jwt_secret() -> String {
         std::env::var("JWT_SECRET").unwrap_or_else(|_| "dev-secret-change-me".into())
