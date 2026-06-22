@@ -29,7 +29,7 @@ generic pay plan runner that any company can configure.
   rotation, `revoked_jti` store, 4-tier route gating).
 - ✅ argon2 password hashing.
 - ✅ Dev seed + Makefile + GitHub Actions CI.
-- ⏳ Leptos SSR UI / Spin WASM target (deferred; same handler functions can be wrapped later).
+- ✅ Leptos SSR admin UI with isolated WASM islands.
 
 Test counts: **96 in `payplan_core`** (77 unit + 19 property),
 **62 lib tests across the workspace**, **33 infra integration tests**,
@@ -39,23 +39,26 @@ Test counts: **96 in `payplan_core`** (77 unit + 19 property),
 
 ## Quickstart
 
-Prereqs: Rust stable, Postgres 14+, `rtk` (optional but recommended).
+Prereqs: Rust stable, Postgres 14+, the WASM Rust target, and
+`cargo-leptos 0.3.6`.
 
 ```bash
-# 1. Start a local Postgres on the unix socket at /tmp (any Postgres works).
-pg_isready -h /tmp
+# 1. Install the UI build prerequisites once.
+rustup target add wasm32-unknown-unknown
+cargo install --locked cargo-leptos --version 0.3.6
 
-# 2. Verify the workspace builds and tests pass.
-make ci
+# 2. Start a local Postgres on the unix socket at /tmp (any Postgres works).
+pg_isready -h /tmp
 
 # 3. Apply the dev seed (creates Acme + Royal Flush + Binary packages).
 make seed
 
-# 4. Start the server.
+# 4. Build the server and browser assets, then watch for changes.
 make serve
 ```
 
-The server binds to `0.0.0.0:3000` by default. Override with `BIND_ADDR=...`.
+Open <http://127.0.0.1:3000/login>. The server binds to
+`0.0.0.0:3000` by default. Override with `BIND_ADDR=...`.
 
 ```bash
 # Health check
@@ -268,9 +271,13 @@ for renewals and job retries).
 
 ```bash
 make help          # Show all targets
-make ci            # fmt + clippy + test
+make test          # Workspace tests
+make test-integration # Postgres integration tests
+make test-ui       # Leptos app/client/server tests
+make ci            # Full local CI suite
 make seed          # Apply dev seed
-make serve         # Run server
+make serve         # Build UI + run server + live reload
+make serve-release # Optimized local release server
 make reset         # Wipe all data (DANGER)
 make health        # curl /health
 ```
@@ -284,6 +291,7 @@ crates/
   payplan_infra/     Postgres + auth + ops
   payplan_web/       axum routes + handlers + AppContext
   payplan_server/    payplan-server binary
+  payplan_ui/        SSR admin pages + isolated browser islands
 docs/                PRD + architecture + module contract
 migrations/          Postgres schema (also embedded in payplan_infra)
 seeds/               dev seed
@@ -298,13 +306,48 @@ seeds/               dev seed
   `integration` feature flag. Run them with a real Postgres:
 
 ```bash
-export DATABASE_URL="postgres://$(whoami)@localhost:5432/postgres?host=/tmp"
-cargo test -p payplan_infra --features integration --tests -- --include-ignored --test-threads=1
-cargo test -p payplan_web   --features integration --tests -- --include-ignored --test-threads=1
+make test
+make test-integration
+make test-ui
+make ui-build
+make ui-baseline
 ```
 
 The `payplan_web` integration suite is the auth HTTP-level suite (8 tests
 covering login, refresh-rotation, logout-revocation, role gating).
+
+### Testing the admin UI
+
+`make serve` is the supported development command. Plain `cargo run` starts
+only the backend and does not build or watch the JS/WASM/CSS assets.
+
+Create a local login once while the server is running:
+
+```bash
+curl --fail-with-body \
+  -H 'Content-Type: application/json' \
+  --data '{"email":"admin@local.test","password":"change-me-local","company_id":null}' \
+  http://127.0.0.1:3000/api/users
+
+psql "$DATABASE_URL" \
+  -c "UPDATE users SET role = 'platform_admin' WHERE email = 'admin@local.test'"
+```
+
+Then sign in at <http://127.0.0.1:3000/login>.
+
+Manual smoke checks:
+
+1. Dashboard and package data are present on direct page load.
+2. The mobile-menu button changes from “Open menu” to “Close menu.”
+3. Search and pagination work as normal GET requests.
+4. Company/catalog/billing forms submit and redirect back to their SSR list.
+5. `/api/packages` still rejects cookie-only authentication.
+
+To measure authenticated SSR route timings, export a curl cookie jar and run:
+
+```bash
+COOKIE_FILE=/tmp/payplan-ui-cookies.txt make ui-route-baseline
+```
 
 ### CI
 

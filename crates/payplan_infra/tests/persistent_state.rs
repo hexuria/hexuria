@@ -244,10 +244,7 @@ async fn binary_tree_is_company_scoped_and_forms_one_tree() {
 
     // Two purchases: B is sponsored by A. company-scoped tree state lives under
     // company_id.0 regardless of which enrollment triggered the placement.
-    let purchases = [
-        (user_a, enroll_a, None),
-        (user_b, enroll_b, Some(user_a)),
-    ];
+    let purchases = [(user_a, enroll_a, None), (user_b, enroll_b, Some(user_a))];
 
     for (user_id, enrollment_id, sponsor) in purchases {
         // Reload state from BOTH namespaces, as the real driver does.
@@ -299,10 +296,11 @@ async fn binary_tree_is_company_scoped_and_forms_one_tree() {
     }
 
     // Exactly ONE company-scoped tree row exists, with two nodes.
-    let rows = sqlx::query("SELECT aggregate_id FROM module_state WHERE module_key = 'binary.tree'")
-        .fetch_all(&pool)
-        .await
-        .unwrap();
+    let rows =
+        sqlx::query("SELECT aggregate_id FROM module_state WHERE module_key = 'binary.tree'")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
     assert_eq!(rows.len(), 1, "one shared company-scoped tree row");
 
     let state: serde_json::Value = sqlx::query_scalar(
@@ -326,7 +324,10 @@ async fn binary_tree_is_company_scoped_and_forms_one_tree() {
         .find(|n| n.get("user_id") == Some(&json!(user_b)))
         .expect("node b present");
     assert!(
-        node_a.get("parent_node_id").map(|v| v.is_null()).unwrap_or(true),
+        node_a
+            .get("parent_node_id")
+            .map(|v| v.is_null())
+            .unwrap_or(true),
         "first enrollment is the root"
     );
     assert_eq!(

@@ -447,8 +447,13 @@ async fn empty_stack_leaves_no_orphan_rows() {
         package_id,
         sponsor_user_id: None,
     };
+    let pool = sqlx::PgPool::connect_lazy(
+        &std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://postgres@localhost/postgres".into()),
+    )
+    .unwrap();
     let deps = PurchaseDeps {
-        pool: &sqlx::PgPool::connect_lazy("postgres://x@y/z").unwrap(),
+        pool: &pool,
         purchase_writer: None,
         projector: None,
         event_projector: None,
@@ -566,8 +571,13 @@ async fn unknown_billing_plan_returns_validation_before_insert() {
         .insert(package.id.0, package);
     stores.users.lock().unwrap().insert(user.id.0, user);
 
+    let pool = sqlx::PgPool::connect_lazy(
+        &std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://postgres@localhost/postgres".into()),
+    )
+    .unwrap();
     let deps = PurchaseDeps {
-        pool: &sqlx::PgPool::connect_lazy("postgres://x@y/z").unwrap(),
+        pool: &pool,
         purchase_writer: None,
         projector: None,
         event_projector: None,

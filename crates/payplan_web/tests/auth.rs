@@ -603,9 +603,14 @@ async fn company_admin_cannot_create_package_for_another_company() {
     let ctx = ctx(pool.clone()).await;
     let passwords: Arc<dyn PasswordPort> = ctx.passwords.clone();
 
-    let (company_a, _admin_a) =
-        seed_company_admin(&pool, passwords.as_ref(), "admin-a@example.test", "pw-a", "company_admin")
-            .await;
+    let (company_a, _admin_a) = seed_company_admin(
+        &pool,
+        passwords.as_ref(),
+        "admin-a@example.test",
+        "pw-a",
+        "company_admin",
+    )
+    .await;
     let company_b = CompanyId::new();
     sqlx::query("INSERT INTO companies (id, name, slug) VALUES ($1, 'CompanyB', $2)")
         .bind(company_b)

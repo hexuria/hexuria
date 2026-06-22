@@ -1,0 +1,222 @@
+@import "tailwindcss" source(none);
+@source "../src/**/*.rs";
+
+@theme {
+  --color-ink: #16251f;
+  --color-paper: #f4f7f2;
+  --color-accent: #196c4a;
+}
+
+@layer base {
+  body {
+    margin: 0;
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: ui-sans-serif, system-ui, sans-serif;
+  }
+
+  a {
+    color: var(--color-accent);
+  }
+
+  input,
+  button {
+    font: inherit;
+  }
+}
+
+@layer components {
+  .page-shell,
+  .login-shell {
+    width: min(70rem, calc(100% - 2rem));
+    margin: 4rem auto;
+  }
+
+  .admin-layout {
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: 16rem minmax(0, 1fr);
+  }
+
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+    padding: 2rem 1.25rem;
+    background: #10291f;
+    color: white;
+  }
+
+  .sidebar nav {
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .sidebar a {
+    color: #d7e9df;
+    padding: 0.6rem 0.7rem;
+    text-decoration: none;
+  }
+
+  .brand {
+    font-size: 1.35rem;
+    font-weight: 800;
+  }
+
+  .content {
+    min-width: 0;
+    padding: 2.5rem;
+  }
+
+  .page-heading {
+    margin-bottom: 1.5rem;
+  }
+
+  .eyebrow {
+    color: #527064;
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .panel,
+  .stat-card {
+    border: 1px solid #dce5df;
+    border-radius: 0.9rem;
+    background: white;
+    padding: 1.25rem;
+    box-shadow: 0 0.8rem 2rem rgb(16 41 31 / 0.05);
+  }
+
+  .stat-grid,
+  .job-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .stat-card {
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  .stat-card strong {
+    font-size: 2rem;
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  th,
+  td {
+    border-bottom: 1px solid #e5ebe7;
+    padding: 0.8rem;
+    text-align: left;
+  }
+
+  .search-form,
+  .pagination {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 0 0 1rem;
+  }
+
+  .create-panel {
+    margin-bottom: 1rem;
+  }
+
+  .create-panel summary {
+    cursor: pointer;
+    font-weight: 700;
+  }
+
+  .create-panel form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+
+  .create-panel label {
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .create-panel input,
+  .create-panel select {
+    border: 1px solid #b4c2ba;
+    border-radius: 0.45rem;
+    padding: 0.65rem;
+  }
+
+  .pagination {
+    justify-content: space-between;
+    margin: 1rem 0 0;
+  }
+
+  .error-banner {
+    border: 1px solid #d79292;
+    border-radius: 0.5rem;
+    background: #fff0f0;
+    color: #781d1d;
+    padding: 0.85rem;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+  }
+
+  @media (max-width: 52rem) {
+    .admin-layout {
+      display: block;
+    }
+
+    .sidebar {
+      display: none;
+    }
+
+    .content {
+      padding: 1.25rem;
+    }
+
+    .stat-grid,
+    .job-grid {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  .login-shell {
+    width: min(28rem, calc(100% - 2rem));
+  }
+
+  .login-shell form,
+  .login-shell label {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .login-shell form {
+    gap: 1.25rem;
+  }
+
+  .login-shell input,
+  .login-shell button,
+  .mobile-nav-toggle {
+    border: 1px solid #b4c2ba;
+    border-radius: 0.5rem;
+    padding: 0.75rem 0.9rem;
+  }
+}

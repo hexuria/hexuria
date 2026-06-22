@@ -4,6 +4,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json};
 use axum::Form;
+use payplan_app::auth::{login, refresh_tokens, revoke_tokens, role_str, AuthDeps, LoginInput};
 use payplan_app::commands::{
     default_module_registry, handle_create_billing_plan, handle_create_catalog_item,
     handle_create_company, handle_create_package, handle_purchase_package, handle_register_user,
@@ -145,10 +146,7 @@ pub async fn create_catalog_item_handler(
     let item = handle_create_catalog_item(cmd, ctx.catalog.as_ref(), &ctx.pool)
         .await
         .map_err(ApiError::from)?;
-    Ok((
-        StatusCode::CREATED,
-        Json(to_json(&item)?),
-    ))
+    Ok((StatusCode::CREATED, Json(to_json(&item)?)))
 }
 
 #[derive(Debug, Deserialize)]
@@ -226,13 +224,16 @@ pub async fn create_billing_plan_handler(
     let billing_type = match body.billing_type.as_str() {
         "one_time" => payplan_core::platform::catalog::BillingType::OneTime,
         "recurring" => payplan_core::platform::catalog::BillingType::Recurring,
-        other => return Err(ApiError::bad_request(format!("unknown billing_type: {other}"))),
+        other => {
+            return Err(ApiError::bad_request(format!(
+                "unknown billing_type: {other}"
+            )))
+        }
     };
     let recurring = if billing_type == payplan_core::platform::catalog::BillingType::Recurring {
-        let interval = body
-            .recurring_interval
-            .as_deref()
-            .ok_or_else(|| ApiError::bad_request("recurring billing requires recurring_interval"))?;
+        let interval = body.recurring_interval.as_deref().ok_or_else(|| {
+            ApiError::bad_request("recurring billing requires recurring_interval")
+        })?;
         let interval_enum = match interval {
             "daily" => payplan_core::platform::catalog::RecurrenceInterval::Daily,
             "weekly" => payplan_core::platform::catalog::RecurrenceInterval::Weekly,
@@ -243,7 +244,9 @@ pub async fn create_billing_plan_handler(
         };
         let interval_count = body.recurring_interval_count.unwrap_or(1);
         if interval_count == 0 {
-            return Err(ApiError::bad_request("recurring_interval_count must be > 0"));
+            return Err(ApiError::bad_request(
+                "recurring_interval_count must be > 0",
+            ));
         }
         Some(payplan_core::platform::catalog::RecurringSettings {
             interval: interval_enum,
@@ -286,10 +289,7 @@ pub async fn create_billing_plan_handler(
     let plan = handle_create_billing_plan(cmd, ctx.catalog.as_ref(), &ctx.pool)
         .await
         .map_err(ApiError::from)?;
-    Ok((
-        StatusCode::CREATED,
-        Json(to_json(&plan)?),
-    ))
+    Ok((StatusCode::CREATED, Json(to_json(&plan)?)))
 }
 
 #[instrument(skip(ctx))]
@@ -378,10 +378,7 @@ pub async fn create_package_handler(
     let pkg = handle_create_package(cmd, ctx.packages.as_ref(), &ctx.pool)
         .await
         .map_err(ApiError::from)?;
-    Ok((
-        StatusCode::CREATED,
-        Json(to_json(&pkg)?),
-    ))
+    Ok((StatusCode::CREATED, Json(to_json(&pkg)?)))
 }
 
 #[derive(Debug, Deserialize)]
@@ -409,7 +406,9 @@ pub async fn purchase_package_handler(
     Json(body): Json<PurchaseBody>,
 ) -> Result<(StatusCode, Json<PurchaseResponse>), ApiError> {
     if !auth.can_impersonate() && body.user_id != auth.user_id.0 {
-        return Err(ApiError::forbidden("cannot purchase on behalf of another user"));
+        return Err(ApiError::forbidden(
+            "cannot purchase on behalf of another user",
+        ));
     }
     let cmd = PurchasePackageCommand {
         company_id: CompanyId::from(body.company_id),
@@ -417,7 +416,7 @@ pub async fn purchase_package_handler(
         package_id: PackageId::from(body.package_id),
         sponsor_user_id: body.sponsor_user_id.map(UserId::from),
     };
-    let deps = build_purchase_deps(&ctx);
+    let deps = purchase_deps(&ctx);
     let outcome = handle_purchase_package(cmd, &deps)
         .await
         .map_err(ApiError::from)?;
@@ -457,7 +456,7 @@ pub struct JobResult {
     pub processed: usize,
 }
 
-fn build_purchase_deps<'a>(ctx: &'a AppContext) -> PurchaseDeps<'a> {
+pub fn purchase_deps(ctx: &AppContext) -> PurchaseDeps<'_> {
     PurchaseDeps {
         pool: &ctx.pool,
         packages: ctx.packages.as_ref(),
@@ -481,7 +480,7 @@ fn build_purchase_deps<'a>(ctx: &'a AppContext) -> PurchaseDeps<'a> {
 pub async fn run_renewals_handler(
     State(ctx): State<AppContext>,
 ) -> Result<Json<JobResult>, ApiError> {
-    let deps = build_purchase_deps(&ctx);
+    let deps = purchase_deps(&ctx);
     let processed = run_renewals(&ctx.pool, &deps)
         .await
         .map_err(ApiError::from)?;
@@ -492,7 +491,7 @@ pub async fn run_renewals_handler(
 pub async fn run_royal_pot_distribution_handler(
     State(ctx): State<AppContext>,
 ) -> Result<Json<JobResult>, ApiError> {
-    let deps = build_purchase_deps(&ctx);
+    let deps = purchase_deps(&ctx);
     let processed = run_royal_pot_distribution(&ctx.pool, &deps)
         .await
         .map_err(ApiError::from)?;
@@ -503,7 +502,7 @@ pub async fn run_royal_pot_distribution_handler(
 pub async fn close_binary_cycles_handler(
     State(ctx): State<AppContext>,
 ) -> Result<Json<JobResult>, ApiError> {
-    let deps = build_purchase_deps(&ctx);
+    let deps = purchase_deps(&ctx);
     let processed = close_binary_cycles(&ctx.pool, &deps)
         .await
         .map_err(ApiError::from)?;
@@ -524,11 +523,6 @@ fn _types(_f: Form<()>, _p: Path<()>) {}
 // Auth handlers (Track C)
 // ===========================================================================
 
-/// Pre-computed argon2 hash of a random string. Used in the login handler when
-/// the requested email doesn't match any user — we still run the verifier
-/// against this dummy so the "no such user" timing matches "wrong password".
-const DUMMY_ARGON2_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHQ$JEjzR8KNbB7+kyBJPzLYa6Ek1T/lnM39FhOvkMB6HKs";
-
 #[derive(Debug, Deserialize)]
 pub struct LoginBody {
     pub email: String,
@@ -548,63 +542,20 @@ pub async fn login_handler(
     State(ctx): State<AppContext>,
     Json(body): Json<LoginBody>,
 ) -> Result<Json<TokenPair>, ApiError> {
-    let mut conn = ctx
-        .pool
-        .acquire()
-        .await
-        .map_err(|e| ApiError::internal("login: acquire connection", e))?;
-    let user = ctx
-        .users
-        .find_by_email(&body.email, &mut conn)
-        .await
-        .map_err(|e| ApiError::internal("login: find user", e))?;
-    let (user, ok) = match user {
-        Some(u) => {
-            let ok = ctx
-                .passwords
-                .verify(&body.password, &u.password_hash)
-                .await
-                .map_err(|e| ApiError::internal("login: verify password", e))?;
-            (Some(u), ok)
-        }
-        None => {
-            // Timing-safe: do argon2 work against a dummy hash so the "no such
-            // user" path takes the same time as a wrong-password path.
-            let _ = ctx.passwords.verify(&body.password, DUMMY_ARGON2_HASH).await;
-            (None, false)
-        }
-    };
-    if !ok {
-        return Err(ApiError::new(StatusCode::UNAUTHORIZED, "invalid credentials"));
-    }
-    let user = user.expect("ok=true implies user is Some");
-
-    let role_str = user_role_str(user.role);
-    let access = ctx
-        .tokens
-        .issue_access(user.id.0, user.company_id.map(|c| c.0), role_str)
-        .await
-        .map_err(|e| ApiError::internal("login: issue access token", e))?;
-    let refresh = ctx
-        .tokens
-        .issue_refresh(user.id.0, user.company_id.map(|c| c.0), role_str)
-        .await
-        .map_err(|e| ApiError::internal("login: issue refresh token", e))?;
-    let access_token = ctx
-        .tokens
-        .encode(&access)
-        .await
-        .map_err(|e| ApiError::internal("login: encode access token", e))?;
-    let refresh_token = ctx
-        .tokens
-        .encode(&refresh)
-        .await
-        .map_err(|e| ApiError::internal("login: encode refresh token", e))?;
+    let pair = login(
+        &auth_deps(&ctx),
+        LoginInput {
+            email: body.email,
+            password: body.password,
+        },
+    )
+    .await
+    .map_err(auth_api_error)?;
     Ok(Json(TokenPair {
-        access_token,
-        refresh_token,
-        user_id: user.id.0,
-        role: role_str.into(),
+        access_token: pair.access_token,
+        refresh_token: pair.refresh_token,
+        user_id: pair.user_id.0,
+        role: role_str(pair.role).into(),
     }))
 }
 
@@ -618,66 +569,14 @@ pub async fn refresh_handler(
     State(ctx): State<AppContext>,
     Json(body): Json<RefreshBody>,
 ) -> Result<Json<TokenPair>, ApiError> {
-    let claims = ctx
-        .tokens
-        .verify(&body.refresh_token, payplan_app::ports::TokenKind::Refresh)
-        .map_err(|_| ApiError::new(StatusCode::UNAUTHORIZED, "invalid refresh token"))?;
-
-    let mut conn = ctx
-        .pool
-        .acquire()
+    let pair = refresh_tokens(&auth_deps(&ctx), &body.refresh_token)
         .await
-        .map_err(|e| ApiError::internal("refresh: acquire connection", e))?;
-    let exp = chrono::DateTime::from_timestamp(claims.exp as i64, 0).unwrap_or(chrono::Utc::now());
-    let inserted = ctx
-        .revoked_jti
-        .revoke(
-            &claims.jti,
-            claims.sub,
-            payplan_app::ports::TokenKind::Refresh,
-            exp,
-            &mut conn,
-        )
-        .await
-        .map_err(|e| ApiError::internal("refresh: revoke jti", e))?;
-    if !inserted {
-        return Err(ApiError::new(StatusCode::UNAUTHORIZED, "token revoked"));
-    }
-
-    let user = ctx
-        .users
-        .get(UserId::from(claims.sub), &mut conn)
-        .await
-        .map_err(|e| ApiError::internal("refresh: load user", e))?
-        .ok_or_else(|| ApiError::new(StatusCode::UNAUTHORIZED, "user no longer exists"))?;
-    let role_str = user_role_str(user.role);
-    let company_id = user.company_id.map(|c| c.0);
-
-    let access = ctx
-        .tokens
-        .issue_access(claims.sub, company_id, role_str)
-        .await
-        .map_err(|e| ApiError::internal("refresh: issue access token", e))?;
-    let refresh = ctx
-        .tokens
-        .issue_refresh(claims.sub, company_id, role_str)
-        .await
-        .map_err(|e| ApiError::internal("refresh: issue refresh token", e))?;
-    let access_token = ctx
-        .tokens
-        .encode(&access)
-        .await
-        .map_err(|e| ApiError::internal("refresh: encode access token", e))?;
-    let refresh_token = ctx
-        .tokens
-        .encode(&refresh)
-        .await
-        .map_err(|e| ApiError::internal("refresh: encode refresh token", e))?;
+        .map_err(auth_api_error)?;
     Ok(Json(TokenPair {
-        access_token,
-        refresh_token,
-        user_id: claims.sub,
-        role: role_str.into(),
+        access_token: pair.access_token,
+        refresh_token: pair.refresh_token,
+        user_id: pair.user_id.0,
+        role: role_str(pair.role).into(),
     }))
 }
 
@@ -693,59 +592,32 @@ pub async fn logout_handler(
     auth: crate::session::AuthUser,
     Json(body): Json<LogoutBody>,
 ) -> Result<StatusCode, ApiError> {
-    let mut conn = ctx
-        .pool
-        .acquire()
-        .await
-        .map_err(|e| ApiError::internal("logout: acquire connection", e))?;
-
-    // Revoke the access token. `AuthUser` already verified it, but we re-decode
-    // to recover the jti/exp (AuthUser discards them).
-    if let Ok(claims) = ctx
-        .tokens
-        .verify(&body.access_token, payplan_app::ports::TokenKind::Access)
-    {
-        let exp =
-            chrono::DateTime::from_timestamp(claims.exp as i64, 0).unwrap_or(chrono::Utc::now());
-        let _ = ctx
-            .revoked_jti
-            .revoke(
-                &claims.jti,
-                auth.user_id.0,
-                payplan_app::ports::TokenKind::Access,
-                exp,
-                &mut conn,
-            )
-            .await;
-    }
-    // Revoke the refresh token if supplied (best-effort; may be absent/expired).
-    if let Some(refresh) = &body.refresh_token {
-        if let Ok(claims) = ctx
-            .tokens
-            .verify(refresh, payplan_app::ports::TokenKind::Refresh)
-        {
-            let exp = chrono::DateTime::from_timestamp(claims.exp as i64, 0)
-                .unwrap_or(chrono::Utc::now());
-            let _ = ctx
-                .revoked_jti
-                .revoke(
-                    &claims.jti,
-                    auth.user_id.0,
-                    payplan_app::ports::TokenKind::Refresh,
-                    exp,
-                    &mut conn,
-                )
-                .await;
-        }
-    }
+    let _ = auth;
+    revoke_tokens(
+        &auth_deps(&ctx),
+        &body.access_token,
+        body.refresh_token.as_deref(),
+    )
+    .await
+    .map_err(ApiError::from)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-fn user_role_str(role: payplan_core::platform::user::UserRole) -> &'static str {
-    use payplan_core::platform::user::UserRole;
-    match role {
-        UserRole::User => "user",
-        UserRole::CompanyAdmin => "company_admin",
-        UserRole::PlatformAdmin => "platform_admin",
+fn auth_deps(ctx: &AppContext) -> AuthDeps<'_> {
+    AuthDeps {
+        pool: &ctx.pool,
+        users: ctx.users.as_ref(),
+        passwords: ctx.passwords.as_ref(),
+        tokens: ctx.tokens.as_ref(),
+        revoked_jti: ctx.revoked_jti.as_ref(),
+    }
+}
+
+fn auth_api_error(error: AppError) -> ApiError {
+    match error {
+        AppError::Forbidden(message) | AppError::NotFound(message) => {
+            ApiError::new(StatusCode::UNAUTHORIZED, message)
+        }
+        other => ApiError::from(other),
     }
 }

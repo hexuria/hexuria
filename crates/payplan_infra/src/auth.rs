@@ -162,9 +162,8 @@ impl TokenService for JwtService {
     }
 
     fn verify(&self, token: &str, expected_kind: TokenKind) -> AppResult<TokenClaims> {
-        let data =
-            decode::<TokenClaims>(token, &self.decode_key, &self.validation)
-                .map_err(|e| AppError::Infra(format!("jwt verify: {e}")))?;
+        let data = decode::<TokenClaims>(token, &self.decode_key, &self.validation)
+            .map_err(|e| AppError::Infra(format!("jwt verify: {e}")))?;
         if data.claims.kind != expected_kind {
             return Err(AppError::Infra(format!(
                 "jwt kind mismatch: expected {:?}, got {:?}",

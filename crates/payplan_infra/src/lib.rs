@@ -1,3 +1,4 @@
+pub mod admin_queries;
 pub mod aggregate_repos;
 pub mod auth;
 pub mod event_store;

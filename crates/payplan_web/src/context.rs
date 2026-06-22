@@ -6,7 +6,9 @@ use payplan_app::ports::{
     ModuleProjector, ModuleStateStore, PackageRepo, PasswordPort, PayPlanStackRepo, PurchaseRepo,
     PurchaseWriter, RevokedJtiStore, RewardLedgerStore, SubscriptionRepo, TokenService, UserRepo,
 };
+use payplan_app::queries::AdminQueryService;
 use payplan_core::payplan::registry::ModuleRegistry;
+use payplan_infra::admin_queries::PgAdminQueryService;
 use payplan_infra::aggregate_repos::{
     PgCatalogRepo, PgEnrollmentRepo, PgEntitlementRepo, PgPackageRepo, PgPayPlanStackRepo,
     PgPurchaseRepo, PgSubscriptionRepo,
@@ -44,6 +46,7 @@ pub struct AppContext {
     pub event_projector: Arc<dyn EventProjector>,
     pub tokens: Arc<dyn TokenService>,
     pub revoked_jti: Arc<dyn RevokedJtiStore>,
+    pub admin_queries: Arc<dyn AdminQueryService>,
 }
 
 impl AppContext {
@@ -74,6 +77,8 @@ impl AppContext {
         let event_projector: Arc<dyn EventProjector> = Arc::new(PgEventProjector::new());
         let tokens: Arc<dyn TokenService> = Arc::new(JwtService::new(&jwt_secret));
         let revoked_jti: Arc<dyn RevokedJtiStore> = Arc::new(PgRevokedJtiStore::new(pool.clone()));
+        let admin_queries: Arc<dyn AdminQueryService> =
+            Arc::new(PgAdminQueryService::new(pool.clone()));
 
         info!("AppContext built with all Postgres repos + atomic purchase writer + persistent module state + relational + event projections + JWT auth");
 
@@ -98,6 +103,7 @@ impl AppContext {
             event_projector,
             tokens,
             revoked_jti,
+            admin_queries,
         }
     }
 

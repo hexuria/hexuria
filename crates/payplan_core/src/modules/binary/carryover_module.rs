@@ -137,8 +137,7 @@ mod tests {
     fn carries_unmatched_remainder_from_pair_event() {
         let module = BinaryCarryoverModule::new();
         let company = CompanyId::new();
-        let ctx = ModuleContext::new(company, PackageId::new())
-            .with_event(pair_matched(10, 7, 7));
+        let ctx = ModuleContext::new(company, PackageId::new()).with_event(pair_matched(10, 7, 7));
         let result = module.run(&ctx).expect("run");
 
         let state: CarryoverState =
@@ -158,8 +157,7 @@ mod tests {
         let company = CompanyId::new();
 
         // Cycle 1: left=5 over.
-        let ctx1 =
-            ModuleContext::new(company, PackageId::new()).with_event(pair_matched(8, 3, 3));
+        let ctx1 = ModuleContext::new(company, PackageId::new()).with_event(pair_matched(8, 3, 3));
         let s1: CarryoverState =
             serde_json::from_value(module.run(&ctx1).unwrap().state_change.unwrap()).unwrap();
         assert_eq!(s1.carry.left_volume, 5);

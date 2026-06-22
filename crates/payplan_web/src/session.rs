@@ -96,19 +96,24 @@ pub async fn authenticate(ctx: &AppContext, headers: &HeaderMap) -> Result<AuthU
         None => return Err(AuthError::MissingToken),
     };
 
+    authenticate_access_token(ctx, &token).await
+}
+
+/// Verify an access token supplied by a non-API transport, such as the
+/// HttpOnly cookie used by the server-rendered administration UI.
+pub async fn authenticate_access_token(
+    ctx: &AppContext,
+    token: &str,
+) -> Result<AuthUser, AuthError> {
     let claims = ctx
         .tokens
-        .verify(&token, TokenKind::Access)
+        .verify(token, TokenKind::Access)
         .map_err(|e| AuthError::InvalidToken(e.to_string()))?;
 
-    let mut conn = ctx
-        .pool
-        .acquire()
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "auth: failed to acquire connection");
-            AuthError::InvalidToken("service unavailable".into())
-        })?;
+    let mut conn = ctx.pool.acquire().await.map_err(|e| {
+        tracing::error!(error = %e, "auth: failed to acquire connection");
+        AuthError::InvalidToken("service unavailable".into())
+    })?;
     // Fail closed: on a store error, deny (treat as revoked).
     if ctx
         .revoked_jti
@@ -136,7 +141,6 @@ pub async fn authenticate(ctx: &AppContext, headers: &HeaderMap) -> Result<AuthU
 }
 
 // Allow handlers to use `auth: AuthUser` as a direct extractor.
-#[axum::async_trait]
 impl FromRequestParts<AppContext> for AuthUser {
     type Rejection = AuthError;
 

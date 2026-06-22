@@ -796,7 +796,8 @@ async fn pair_matched_inserts_pairing_result() {
     assert_eq!(row.try_get::<i64, _>("right_volume").unwrap(), 100);
     assert_eq!(row.try_get::<i64, _>("matched_volume").unwrap(), 100);
     assert_eq!(
-        row.try_get::<rust_decimal::Decimal, _>("commission_amount").unwrap(),
+        row.try_get::<rust_decimal::Decimal, _>("commission_amount")
+            .unwrap(),
         rust_decimal::Decimal::from(10)
     );
     assert_eq!(row.try_get::<UserId, _>("user_id").unwrap(), user_id);
@@ -855,7 +856,11 @@ async fn pair_matched_without_commission_event_records_zero() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(commission_amount, rust_decimal::Decimal::ZERO, "no commission event → 0 amount");
+    assert_eq!(
+        commission_amount,
+        rust_decimal::Decimal::ZERO,
+        "no commission event → 0 amount"
+    );
 }
 
 // ===========================================================================
@@ -1165,9 +1170,24 @@ async fn pot_bonus_distribution_updates_balances() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(row_a.try_get::<rust_decimal::Decimal, _>("total_earned").unwrap(), rust_decimal::Decimal::from(475));
-    assert_eq!(row_a.try_get::<rust_decimal::Decimal, _>("profit_share_earned").unwrap(), rust_decimal::Decimal::from(375));
-    assert_eq!(row_a.try_get::<rust_decimal::Decimal, _>("top_cycler_earned").unwrap(), rust_decimal::Decimal::from(100));
+    assert_eq!(
+        row_a
+            .try_get::<rust_decimal::Decimal, _>("total_earned")
+            .unwrap(),
+        rust_decimal::Decimal::from(475)
+    );
+    assert_eq!(
+        row_a
+            .try_get::<rust_decimal::Decimal, _>("profit_share_earned")
+            .unwrap(),
+        rust_decimal::Decimal::from(375)
+    );
+    assert_eq!(
+        row_a
+            .try_get::<rust_decimal::Decimal, _>("top_cycler_earned")
+            .unwrap(),
+        rust_decimal::Decimal::from(100)
+    );
     assert_eq!(row_a.try_get::<i32, _>("distributions_count").unwrap(), 1);
 
     let row_b = sqlx::query(
@@ -1179,9 +1199,24 @@ async fn pot_bonus_distribution_updates_balances() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(row_b.try_get::<rust_decimal::Decimal, _>("total_earned").unwrap(), rust_decimal::Decimal::from(375));
-    assert_eq!(row_b.try_get::<rust_decimal::Decimal, _>("profit_share_earned").unwrap(), rust_decimal::Decimal::from(375));
-    assert_eq!(row_b.try_get::<rust_decimal::Decimal, _>("top_cycler_earned").unwrap(), rust_decimal::Decimal::ZERO);
+    assert_eq!(
+        row_b
+            .try_get::<rust_decimal::Decimal, _>("total_earned")
+            .unwrap(),
+        rust_decimal::Decimal::from(375)
+    );
+    assert_eq!(
+        row_b
+            .try_get::<rust_decimal::Decimal, _>("profit_share_earned")
+            .unwrap(),
+        rust_decimal::Decimal::from(375)
+    );
+    assert_eq!(
+        row_b
+            .try_get::<rust_decimal::Decimal, _>("top_cycler_earned")
+            .unwrap(),
+        rust_decimal::Decimal::ZERO
+    );
 }
 
 #[tokio::test]
@@ -1224,11 +1259,16 @@ async fn pot_bonus_balances_upsert_accumulates() {
     .await
     .unwrap();
     assert_eq!(
-        row.try_get::<rust_decimal::Decimal, _>("total_earned").unwrap(),
+        row.try_get::<rust_decimal::Decimal, _>("total_earned")
+            .unwrap(),
         rust_decimal::Decimal::from(400),
         "two distributions accumulated"
     );
-    assert_eq!(row.try_get::<rust_decimal::Decimal, _>("profit_share_earned").unwrap(), rust_decimal::Decimal::from(400));
+    assert_eq!(
+        row.try_get::<rust_decimal::Decimal, _>("profit_share_earned")
+            .unwrap(),
+        rust_decimal::Decimal::from(400)
+    );
     assert_eq!(row.try_get::<i32, _>("distributions_count").unwrap(), 2);
 }
 

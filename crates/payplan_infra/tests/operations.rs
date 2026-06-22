@@ -8,7 +8,6 @@
 
 #![cfg(feature = "integration")]
 
-use chrono::Utc;
 use payplan_core::payplan::events::EventType;
 use payplan_core::payplan::registry::ModuleRegistry;
 use payplan_core::payplan::runner::StackRunner;
@@ -19,7 +18,7 @@ use payplan_infra::aggregate_repos::{
 use payplan_infra::event_store::PgEventStore;
 use payplan_infra::ledger_store::PgLedgerStore;
 use payplan_infra::migrator;
-use payplan_infra::operations::{run_renewals, run_royal_pot_distribution};
+use payplan_infra::operations::run_renewals;
 use payplan_infra::postgres::{connect, PgConfig};
 use payplan_infra::repos::PgUserRepo;
 use sqlx::PgPool;
@@ -432,5 +431,8 @@ async fn failing_projector_rolls_back_event_append() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(count, 0, "event append rolled back with the failed projector");
+    assert_eq!(
+        count, 0,
+        "event append rolled back with the failed projector"
+    );
 }

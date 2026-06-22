@@ -6,8 +6,6 @@
 
 #![cfg(feature = "integration")]
 
-use std::sync::Arc;
-
 use chrono::Utc;
 use payplan_app::error::AppResult;
 use payplan_app::ports::{PurchaseWriter, PurchaseWrites};
@@ -318,15 +316,4 @@ async fn count_for(pool: &PgPool, table: &str, company_id: CompanyId) -> i64 {
         .fetch_one(pool)
         .await
         .unwrap_or(0)
-}
-
-async fn count(pool: &PgPool, table: &str) -> i64 {
-    let q = format!("SELECT COUNT(*) FROM {table}");
-    sqlx::query_scalar(&q).fetch_one(pool).await.unwrap_or(0)
-}
-
-// Suppress unused-import noise
-#[allow(dead_code)]
-fn _arc() {
-    let _: Arc<()> = Arc::new(());
 }

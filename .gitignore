@@ -17,6 +17,11 @@ Cargo.lock.bak
 
 # Logs
 *.log
+
+# Keep the application lockfile and repository documentation versioned.
+# Ignore ad-hoc lock files and Markdown only outside the tracked project paths.
 *.lock
 *.md
 !README.md
+!docs/
+!docs/**/*.md

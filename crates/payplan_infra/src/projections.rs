@@ -272,9 +272,7 @@ impl EventProjector for PgEventProjector {
                 EventType::RoyalAccountDuplicated => project_duplication(event, conn).await?,
                 EventType::BinaryPairMatched => project_pairing_result(event, events, conn).await?,
                 EventType::BinaryCycleClosed => advance_cycle_count(event, conn).await?,
-                EventType::RoyalPotBonusSettled => {
-                    project_pot_bonus_balances(event, conn).await?
-                }
+                EventType::RoyalPotBonusSettled => project_pot_bonus_balances(event, conn).await?,
                 _ => {}
             }
         }
@@ -298,7 +296,12 @@ fn decimal_field(payload: &serde_json::Value, key: &str) -> rust_decimal::Decima
         .get(key)
         .and_then(|v| v.as_str())
         .and_then(|s| s.parse().ok())
-        .or_else(|| payload.get(key).and_then(|v| v.as_i64()).map(rust_decimal::Decimal::from))
+        .or_else(|| {
+            payload
+                .get(key)
+                .and_then(|v| v.as_i64())
+                .map(rust_decimal::Decimal::from)
+        })
         .unwrap_or(rust_decimal::Decimal::ZERO)
 }
 

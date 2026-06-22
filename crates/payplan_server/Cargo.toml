@@ -8,13 +8,25 @@ license.workspace = true
 name = "payplan-server"
 path = "src/main.rs"
 
+[features]
+default = ["ssr"]
+ssr = ["payplan_ui/ssr"]
+
 [dependencies]
 payplan_core = { path = "../payplan_core" }
 payplan_app = { path = "../payplan_app" }
 payplan_infra = { path = "../payplan_infra" }
 payplan_web = { path = "../payplan_web" }
+payplan_ui = { path = "../payplan_ui", default-features = false }
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow.workspace = true
 axum.workspace = true
+axum-extra.workspace = true
+serde.workspace = true
+time.workspace = true
+rust_decimal.workspace = true
+uuid.workspace = true
+leptos = { workspace = true, features = ["ssr"] }
+leptos_axum.workspace = true

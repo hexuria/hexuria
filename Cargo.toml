@@ -6,6 +6,7 @@ members = [
   "crates/payplan_infra",
   "crates/payplan_web",
   "crates/payplan_server",
+  "crates/payplan_ui",
 ]
 
 [workspace.package]
@@ -40,9 +41,17 @@ pretty_assertions = "1"
 proptest = "1"
 rstest = "0.23"
 anyhow = "1"
-axum = "0.7"
+axum = "0.8.9"
+axum-extra = { version = "0.12.6", features = ["cookie"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors"] }
+leptos = { version = "0.8.19", features = ["islands"] }
+leptos_axum = { version = "0.8.9", features = ["tracing"] }
+leptos_meta = "0.8.6"
+leptos_router = "0.8.13"
+wasm-bindgen = "=0.2.114"
+console_error_panic_hook = "0.1"
+time = "0.3"
 
 [profile.dev]
 opt-level = 0
@@ -51,3 +60,31 @@ debug = 1
 [profile.release]
 opt-level = 3
 lto = "thin"
+
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[[workspace.metadata.leptos]]
+name = "payplan-ui"
+bin-package = "payplan_server"
+bin-target = "payplan-server"
+bin-exe-name = "payplan-server"
+lib-package = "payplan_ui"
+site-root = "target/site"
+site-pkg-dir = "pkg"
+assets-dir = "crates/payplan_ui/public"
+tailwind-input-file = "crates/payplan_ui/style/tailwind.css"
+site-addr = "127.0.0.1:3000"
+reload-port = 3001
+bin-features = ["ssr"]
+bin-default-features = false
+lib-features = ["hydrate"]
+lib-default-features = false
+lib-profile-release = "wasm-release"
+server-fn-prefix = "/_server"
+hash-files = true
+js-minify = true

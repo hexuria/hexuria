@@ -12,13 +12,39 @@
 use std::net::SocketAddr;
 
 use anyhow::{Context, Result};
+use axum::extract::FromRef;
+use axum::Router;
+use leptos::prelude::{get_configuration, LeptosOptions};
+use leptos_axum::{generate_route_list, LeptosRoutes};
 use payplan_infra::migrator;
 use payplan_infra::postgres::{connect, PgConfig};
+use payplan_ui::app::App;
+use payplan_ui::shell::shell;
 use payplan_web::routes::build_router;
 use payplan_web::AppContext;
 use tokio::net::TcpListener;
-use tracing::{info, warn};
+use tracing::info;
 use tracing_subscriber::EnvFilter;
+
+mod ui_http;
+
+#[derive(Clone)]
+pub(crate) struct ServerState {
+    pub(crate) app: AppContext,
+    pub(crate) leptos: LeptosOptions,
+}
+
+impl FromRef<ServerState> for LeptosOptions {
+    fn from_ref(state: &ServerState) -> Self {
+        state.leptos.clone()
+    }
+}
+
+impl FromRef<ServerState> for AppContext {
+    fn from_ref(state: &ServerState) -> Self {
+        state.app.clone()
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -41,13 +67,13 @@ async fn main() -> Result<()> {
         _other => {
             #[cfg(not(debug_assertions))]
             {
-                anyhow::bail!(
-                    "JWT_SECRET must be set to a non-empty value in release builds"
-                );
+                anyhow::bail!("JWT_SECRET must be set to a non-empty value in release builds");
             }
             #[cfg(debug_assertions)]
             {
-                warn!("JWT_SECRET unset — using insecure dev default; do NOT use in production");
+                tracing::warn!(
+                    "JWT_SECRET unset — using insecure dev default; do NOT use in production"
+                );
                 AppContext::dev_jwt_secret()
             }
         }
@@ -55,14 +81,77 @@ async fn main() -> Result<()> {
 
     let ctx = AppContext::new(pool, jwt_secret);
 
-    let bind: SocketAddr = std::env::var("BIND_ADDR")
-        .unwrap_or_else(|_| "0.0.0.0:3000".into())
-        .parse()
-        .context("BIND_ADDR must be a valid socket address")?;
+    let mut leptos_options = leptos_options().context("load Leptos configuration")?;
+    if leptos_options.hash_files && !hash_file_exists(&leptos_options) {
+        tracing::warn!(
+            "hashed Leptos assets are unavailable for this executable; \
+             falling back to unhashed development asset paths. Use `make serve` \
+             to build and serve the browser assets."
+        );
+        leptos_options.hash_files = false;
+    }
+    let bind: SocketAddr = match std::env::var("BIND_ADDR") {
+        Ok(value) => value
+            .parse()
+            .context("BIND_ADDR must be a valid socket address")?,
+        Err(_) => leptos_options.site_addr,
+    };
 
-    let app = build_router(ctx);
+    let api_router = build_router(ctx.clone());
+    let state = ServerState {
+        app: ctx.clone(),
+        leptos: leptos_options.clone(),
+    };
+    let routes = generate_route_list(App);
+    let ui_context = {
+        let ctx = ctx.clone();
+        move || leptos::prelude::provide_context(ctx.clone())
+    };
+    let ui_router = Router::new()
+        .leptos_routes_with_context(&state, routes, ui_context.clone(), {
+            let leptos_options = leptos_options.clone();
+            move || shell(leptos_options.clone())
+        })
+        .fallback(leptos_axum::file_and_error_handler_with_context::<
+            ServerState,
+            _,
+        >(ui_context, shell))
+        .merge(ui_http::action_routes())
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            ui_http::require_ui_auth,
+        ))
+        .with_state(state);
+    let app = api_router.merge(ui_router);
     let listener = TcpListener::bind(bind).await.context("bind")?;
     info!(%bind, "payplan-server listening");
     axum::serve(listener, app).await.context("axum::serve")?;
     Ok(())
+}
+
+fn hash_file_exists(options: &LeptosOptions) -> bool {
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| {
+            path.parent()
+                .map(|parent| parent.join(options.hash_file.as_ref()))
+        })
+        .is_some_and(|path| path.is_file())
+}
+
+fn leptos_options() -> Result<LeptosOptions> {
+    if std::env::var_os("LEPTOS_OUTPUT_NAME").is_some() {
+        Ok(get_configuration(None)?.leptos_options)
+    } else {
+        tracing::warn!(
+            "cargo-leptos environment is unavailable; using development \
+             defaults. Run `make serve` for frontend builds and live reload."
+        );
+        Ok(LeptosOptions::builder()
+            .output_name("payplan-ui")
+            .site_root("target/site")
+            .site_pkg_dir("pkg")
+            .server_fn_prefix("/_server".to_string())
+            .build())
+    }
 }

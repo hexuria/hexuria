@@ -68,13 +68,23 @@ pub fn build_router(ctx: AppContext) -> Router {
     // set, in which case that single origin is permitted.
     let cors = match std::env::var("CORS_ORIGIN") {
         Ok(origin) if !origin.is_empty() => CorsLayer::new()
-            .allow_origin(AllowOrigin::exact(origin.parse().expect("valid CORS_ORIGIN header")))
+            .allow_origin(AllowOrigin::exact(
+                origin.parse().expect("valid CORS_ORIGIN header"),
+            ))
             .allow_methods([Method::GET, Method::POST])
-            .allow_headers([axum::http::header::CONTENT_TYPE, axum::http::header::AUTHORIZATION]),
+            .allow_headers([
+                axum::http::header::CONTENT_TYPE,
+                axum::http::header::AUTHORIZATION,
+            ]),
         _ => CorsLayer::new()
-            .allow_origin(AllowOrigin::list(std::iter::empty::<axum::http::HeaderValue>()))
+            .allow_origin(AllowOrigin::list(
+                std::iter::empty::<axum::http::HeaderValue>(),
+            ))
             .allow_methods([Method::GET, Method::POST])
-            .allow_headers([axum::http::header::CONTENT_TYPE, axum::http::header::AUTHORIZATION]),
+            .allow_headers([
+                axum::http::header::CONTENT_TYPE,
+                axum::http::header::AUTHORIZATION,
+            ]),
     };
 
     Router::new()

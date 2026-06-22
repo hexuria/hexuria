@@ -485,8 +485,13 @@ async fn purchase_flow_emits_events_and_runs_royal_flush_modules() {
         sponsor_user_id: None,
     };
     let registry: Arc<ModuleRegistry> = Arc::new(default_module_registry());
+    let pool = sqlx::PgPool::connect_lazy(
+        &std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://postgres@localhost/postgres".into()),
+    )
+    .unwrap();
     let deps = PurchaseDeps {
-        pool: &sqlx::PgPool::connect_lazy("postgres://x@y/z").unwrap(),
+        pool: &pool,
         purchase_writer: None,
         projector: None,
         event_projector: None,
@@ -559,8 +564,13 @@ async fn purchase_with_recurring_creates_subscription() {
         sponsor_user_id: None,
     };
     let registry: Arc<ModuleRegistry> = Arc::new(default_module_registry());
+    let pool = sqlx::PgPool::connect_lazy(
+        &std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://postgres@localhost/postgres".into()),
+    )
+    .unwrap();
     let deps = PurchaseDeps {
-        pool: &sqlx::PgPool::connect_lazy("postgres://x@y/z").unwrap(),
+        pool: &pool,
         purchase_writer: None,
         projector: None,
         event_projector: None,
@@ -620,8 +630,13 @@ async fn inactive_package_is_rejected() {
         sponsor_user_id: None,
     };
     let registry: Arc<ModuleRegistry> = Arc::new(default_module_registry());
+    let pool = sqlx::PgPool::connect_lazy(
+        &std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://postgres@localhost/postgres".into()),
+    )
+    .unwrap();
     let deps = PurchaseDeps {
-        pool: &sqlx::PgPool::connect_lazy("postgres://x@y/z").unwrap(),
+        pool: &pool,
         purchase_writer: None,
         projector: None,
         event_projector: None,
