@@ -8,11 +8,12 @@ use crate::app::App;
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     provide_meta_context();
     let stylesheet = stylesheet_href(&options);
-    if let (Some(nonce), Some(response)) =
-        (leptos::nonce::use_nonce(), use_context::<ResponseOptions>())
+    let nonce = leptos::nonce::use_nonce();
+    if let (Some(ref nonce_str), Some(response)) =
+        (nonce.clone(), use_context::<ResponseOptions>())
     {
         let policy = format!(
-            "default-src 'self'; script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval'; \
+            "default-src 'self'; script-src 'self' 'nonce-{nonce_str}' 'wasm-unsafe-eval'; \
              style-src 'self'; img-src 'self' data:; object-src 'none'; \
              base-uri 'self'; frame-ancestors 'none'"
         );
@@ -27,7 +28,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
             <head>
                 <meta charset="utf-8"/>
                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-                <script>
+                <script nonce=nonce>
                     "if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) { \
                         document.documentElement.classList.add('dark'); \
                      } else { \
