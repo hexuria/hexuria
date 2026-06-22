@@ -9,6 +9,8 @@
 //! - `BIND_ADDR` (optional, default `0.0.0.0:3000`)
 //! - `RUST_LOG` (optional): e.g. `info,payplan=debug,sqlx=warn`
 
+#![recursion_limit = "512"]
+
 use std::net::SocketAddr;
 
 use anyhow::{Context, Result};

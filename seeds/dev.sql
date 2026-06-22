@@ -20,7 +20,7 @@ DELETE FROM pay_plan_stack_modules WHERE stack_id IN (SELECT id FROM pay_plan_st
 DELETE FROM pay_plan_stacks WHERE company_id IN (SELECT id FROM companies WHERE slug = 'acme');
 DELETE FROM billing_plans WHERE catalog_item_id IN (SELECT id FROM catalog_items WHERE company_id IN (SELECT id FROM companies WHERE slug = 'acme'));
 DELETE FROM catalog_items WHERE company_id IN (SELECT id FROM companies WHERE slug = 'acme');
-DELETE FROM users WHERE company_id IN (SELECT id FROM companies WHERE slug = 'acme');
+DELETE FROM users WHERE company_id IN (SELECT id FROM companies WHERE slug = 'acme') OR email IN ('admin@payplan.com', 'acme_admin@payplan.com', 'user@payplan.com');
 DELETE FROM companies WHERE slug = 'acme';
 
 -- Stable IDs so re-runs don't churn UUIDs.
@@ -39,6 +39,10 @@ DECLARE
 
     pkg_rfn_id CONSTANT UUID := '55555555-5555-5555-5555-555555555551';
     pkg_binary_id CONSTANT UUID := '55555555-5555-5555-5555-555555555552';
+
+    admin_id CONSTANT UUID := 'a1111111-1111-1111-1111-111111111111';
+    acme_admin_id CONSTANT UUID := 'a1111111-1111-1111-1111-222222222222';
+    user_id CONSTANT UUID := 'a1111111-1111-1111-1111-333333333333';
 BEGIN
     INSERT INTO companies (id, name, slug, status, settings)
     VALUES (company_id, 'Acme MLM', 'acme', 'active', '{"timezone":"America/Los_Angeles"}');
@@ -79,6 +83,19 @@ BEGIN
     VALUES
         (gen_random_uuid(), pkg_rfn_id, item_rfn_id, item_rfn_billing_id, 1, 'included', TRUE, 50, 5),
         (gen_random_uuid(), pkg_binary_id, item_binary_id, item_binary_billing_id, 1, 'included', TRUE, 100, 0);
+
+    -- Seeded Users
+    -- 1. Platform Admin (no company_id, role is platform_admin)
+    INSERT INTO users (id, email, password_hash, email_verified, role, company_id)
+    VALUES (admin_id, 'admin@payplan.com', '$argon2id$v=19$m=19456,t=2,p=1$hyoYi8zQETUbfOHWBQJuGg$fH1zPmKTIPBQh3i56bzxpk0T4fGLI2JNPyz3RTD4fL0', TRUE, 'platform_admin', NULL);
+
+    -- 2. Company Admin for Acme (company_id = company_id, role is company_admin)
+    INSERT INTO users (id, email, password_hash, email_verified, role, company_id)
+    VALUES (acme_admin_id, 'acme_admin@payplan.com', '$argon2id$v=19$m=19456,t=2,p=1$hyoYi8zQETUbfOHWBQJuGg$fH1zPmKTIPBQh3i56bzxpk0T4fGLI2JNPyz3RTD4fL0', TRUE, 'company_admin', company_id);
+
+    -- 3. Regular User for Acme (company_id = company_id, role is user)
+    INSERT INTO users (id, email, password_hash, email_verified, role, company_id)
+    VALUES (user_id, 'user@payplan.com', '$argon2id$v=19$m=19456,t=2,p=1$hyoYi8zQETUbfOHWBQJuGg$fH1zPmKTIPBQh3i56bzxpk0T4fGLI2JNPyz3RTD4fL0', TRUE, 'user', company_id);
 END $$;
 
 COMMIT;
@@ -90,4 +107,5 @@ SELECT
     (SELECT COUNT(*) FROM billing_plans WHERE catalog_item_id IN (SELECT id FROM catalog_items WHERE company_id IN (SELECT id FROM companies WHERE slug = 'acme'))) AS billing_plans,
     (SELECT COUNT(*) FROM pay_plan_stacks WHERE company_id IN (SELECT id FROM companies WHERE slug = 'acme')) AS stacks,
     (SELECT COUNT(*) FROM pay_plan_stack_modules)                   AS stack_modules,
-    (SELECT COUNT(*) FROM packages WHERE company_id IN (SELECT id FROM companies WHERE slug = 'acme')) AS packages;
+    (SELECT COUNT(*) FROM packages WHERE company_id IN (SELECT id FROM companies WHERE slug = 'acme')) AS packages,
+    (SELECT COUNT(*) FROM users)                                    AS users;

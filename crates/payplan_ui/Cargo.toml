@@ -44,3 +44,4 @@ chrono = { workspace = true, optional = true }
 payplan_app = { path = "../payplan_app", optional = true }
 payplan_core = { path = "../payplan_core", optional = true }
 payplan_web = { path = "../payplan_web", optional = true }
+web-sys = { version = "0.3.91", features = ["Window", "Document", "Element", "HtmlElement", "DomTokenList", "Storage"] }

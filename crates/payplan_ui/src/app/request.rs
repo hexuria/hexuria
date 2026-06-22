@@ -12,6 +12,7 @@ pub(crate) struct PageQuery {
     pub(crate) query: Option<String>,
     pub(crate) error: Option<String>,
     pub(crate) next: Option<String>,
+    pub(crate) status: Option<String>,
 }
 
 pub(crate) fn page_request() -> PageRequest {

@@ -1,9 +1,9 @@
 use leptos::prelude::*;
 
-use crate::islands::MobileNavToggle;
+use crate::islands::{MobileNavToggle, ThemeToggle};
 
 pub(crate) const ADMIN_NAV_ITEMS: [(&str, &str); 8] = [
-    ("/", "Dashboard"),
+    ("/dashboard", "Dashboard"),
     ("/packages", "Packages"),
     ("/companies", "Companies"),
     ("/catalog", "Catalog"),
@@ -18,15 +18,20 @@ pub(crate) fn AdminShell(children: Children) -> impl IntoView {
     view! {
         <div class="admin-layout">
             <aside class="sidebar">
-                <div class="brand">"PayPlan"</div>
+                <div class="flex items-center justify-between pb-2 border-b border-border/20">
+                    <div class="brand">"PayPlan"</div>
+                    <ThemeToggle/>
+                </div>
                 <nav aria-label="Administration">
                     {ADMIN_NAV_ITEMS
                         .into_iter()
                         .map(|(href, label)| view! { <a href=href>{label}</a> })
                         .collect_view()}
                 </nav>
-                <form method="post" action="/logout">
-                    <button type="submit">"Sign out"</button>
+                <form method="post" action="/logout" class="mt-auto">
+                    <button type="submit" class="w-full text-left py-2 px-3 hover:bg-white/5 rounded-md text-[#d7e9df] hover:text-white transition-all cursor-pointer">
+                        "Sign out"
+                    </button>
                 </form>
             </aside>
             <div class="content">

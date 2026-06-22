@@ -1,5 +1,8 @@
 use leptos::prelude::*;
 
+mod theme;
+pub use theme::ThemeToggle;
+
 /// Browser state is required to open and close the compact navigation menu.
 #[island]
 pub fn MobileNavToggle() -> impl IntoView {

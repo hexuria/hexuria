@@ -39,7 +39,7 @@ pub(crate) fn NotFound() -> impl IntoView {
     view! {
         <main class="page-shell">
             <h1>"Page not found"</h1>
-            <a href="/">"Return to dashboard"</a>
+            <a href="/dashboard">"Return to dashboard"</a>
         </main>
     }
 }

@@ -184,7 +184,7 @@ fn cookie_secure() -> bool {
 
 fn safe_next(next: Option<&str>) -> &'static str {
     match next {
-        Some("/") => "/",
+        Some("/dashboard") => "/dashboard",
         Some("/packages") => "/packages",
         Some("/companies") => "/companies",
         Some("/catalog") => "/catalog",
@@ -192,12 +192,13 @@ fn safe_next(next: Option<&str>) -> &'static str {
         Some("/purchases") => "/purchases",
         Some("/users") => "/users",
         Some("/jobs") => "/jobs",
-        _ => "/",
+        _ => "/dashboard",
     }
 }
 
 fn login_redirect(path: &str) -> Response {
     let destination = match path {
+        "/dashboard" => "/login?next=/dashboard",
         "/packages" => "/login?next=/packages",
         "/companies" => "/login?next=/companies",
         "/catalog" => "/login?next=/catalog",
@@ -213,7 +214,8 @@ fn login_redirect(path: &str) -> Response {
 fn is_protected_ui_path(path: &str) -> bool {
     matches!(
         path,
-        "/" | "/packages"
+        "/dashboard"
+            | "/packages"
             | "/companies"
             | "/catalog"
             | "/billing"
@@ -491,8 +493,9 @@ mod tests {
     #[test]
     fn next_redirect_is_restricted_to_known_ui_routes() {
         assert_eq!(safe_next(Some("/packages")), "/packages");
-        assert_eq!(safe_next(Some("https://example.com")), "/");
-        assert_eq!(safe_next(Some("//example.com")), "/");
+        assert_eq!(safe_next(Some("/dashboard")), "/dashboard");
+        assert_eq!(safe_next(Some("https://example.com")), "/dashboard");
+        assert_eq!(safe_next(Some("//example.com")), "/dashboard");
     }
 
     #[test]

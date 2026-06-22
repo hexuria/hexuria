@@ -7,8 +7,8 @@ use leptos_router::{
 use crate::{
     components::NotFound,
     pages::{
-        BillingPage, CatalogPage, CompaniesPage, DashboardPage, JobsPage, LoginPage, PackagesPage,
-        PurchasesPage, UsersPage,
+        BillingPage, CatalogPage, CompaniesPage, DashboardPage, ForgotPasswordPage, JobsPage,
+        LandingPage, LoginPage, PackagesPage, PurchasesPage, ResetPasswordPage, UsersPage,
     },
 };
 
@@ -17,8 +17,11 @@ pub fn App() -> impl IntoView {
     view! {
         <Router>
             <Routes fallback=|| view! { <NotFound/> }>
-                <Route path=path!("/") view=DashboardPage ssr=SsrMode::Async/>
+                <Route path=path!("") view=LandingPage ssr=SsrMode::Async/>
+                <Route path=path!("/dashboard") view=DashboardPage ssr=SsrMode::Async/>
                 <Route path=path!("/login") view=LoginPage ssr=SsrMode::Async/>
+                <Route path=path!("/forgot-password") view=ForgotPasswordPage ssr=SsrMode::Async/>
+                <Route path=path!("/reset-password") view=ResetPasswordPage ssr=SsrMode::Async/>
                 <Route path=path!("/packages") view=PackagesPage ssr=SsrMode::Async/>
                 <Route path=path!("/companies") view=CompaniesPage ssr=SsrMode::Async/>
                 <Route path=path!("/catalog") view=CatalogPage ssr=SsrMode::Async/>
@@ -30,3 +33,4 @@ pub fn App() -> impl IntoView {
         </Router>
     }
 }
+

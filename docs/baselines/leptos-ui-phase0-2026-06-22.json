@@ -1,0 +1,41 @@
+{
+  "recorded_at": "2026-06-22",
+  "build": {
+    "command": "cargo leptos build --release --precompress",
+    "leptos": "0.8.19",
+    "leptos_router": "0.8.13",
+    "leptos_axum": "0.8.9",
+    "cargo_leptos": "0.3.6"
+  },
+  "assets": {
+    "asset_count": 15,
+    "asset_bytes": 257814,
+    "wasm": {
+      "raw_bytes": 116098,
+      "gzip_bytes": 56038,
+      "brotli_bytes": 41926
+    },
+    "javascript": {
+      "raw_bytes": 12833,
+      "gzip_bytes": 4683,
+      "brotli_bytes": 3783
+    }
+  },
+  "routes": {
+    "environment": "local release server, PostgreSQL over local Unix socket, five warm authenticated requests",
+    "dashboard": {
+      "path": "/",
+      "status": 200,
+      "mean_ttfb_seconds": 0.002558,
+      "mean_total_seconds": 0.002639,
+      "html_bytes": 3958
+    },
+    "packages": {
+      "path": "/packages",
+      "status": 200,
+      "mean_ttfb_seconds": 0.001372,
+      "mean_total_seconds": 0.001443,
+      "html_bytes": 3965
+    }
+  }
+}
