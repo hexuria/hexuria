@@ -11,7 +11,6 @@ use payplan_core::modules::royal::pot_bonus::{
 };
 use payplan_core::shared::ids::UserId;
 use proptest::prelude::*;
-use rust_decimal::Decimal;
 
 /// Build a config with both percents in `0..=50` so their sum never exceeds
 /// 100 (satisfying `distribute`'s `debug_assert!`).
@@ -28,69 +27,58 @@ fn arb_config() -> impl Strategy<Value = RoyalPotBonusConfig> {
 proptest! {
     #[test]
     fn profit_share_total_is_proportional(
-        pool_minor in 0i64..10_000,
+        pool in 0i64..10_000,
         config in arb_config(),
         qualified_users in 0u32..20,
     ) {
-        let pool = Decimal::from(pool_minor);
         let outcome = distribute(pool, &config, qualified_users).expect("Some outcome");
-        let expected = pool
-            * Decimal::from(config.profit_share_percent)
-            / Decimal::from(100u32);
+        let expected = pool * i64::from(config.profit_share_percent) / 100;
         prop_assert_eq!(outcome.profit_share_total, expected);
     }
 
     #[test]
     fn top_cycler_payouts_sum_to_total(
-        pool_minor in 0i64..10_000,
+        pool in 0i64..10_000,
         config in arb_config(),
         qualified_users in 0u32..20,
     ) {
         // Need at least one qualified user so distribute returns Some
         // (top_cycler_payouts are still produced when qualified_users==0,
         // but be defensive).
-        let pool = Decimal::from(pool_minor);
         let outcome = distribute(pool, &config, qualified_users).expect("Some outcome");
-        let top_cycler_total =
-            pool * Decimal::from(config.top_cycler_percent) / Decimal::from(100u32);
-        let sum: Decimal = outcome.top_cycler_payouts.iter().copied().sum();
-        // Decimal division of integer weights sums back exactly (no rounding
-        // loss because the default weights divide evenly into 100).
-        prop_assert_eq!(sum, top_cycler_total);
+        let top_cycler_total = pool * i64::from(config.top_cycler_percent) / 100;
+        let sum: i64 = outcome.top_cycler_payouts.iter().copied().sum();
+        // With integer division, the sum of payouts may be slightly less than top_cycler_total due to rounding.
+        prop_assert!(sum <= top_cycler_total);
+        prop_assert!(top_cycler_total - sum <= 4, "top_cycler_total = {}, sum = {}", top_cycler_total, sum);
     }
 
     #[test]
     fn per_qualified_user_divides_evenly(
-        pool_minor in 0i64..10_000,
+        pool in 0i64..10_000,
         config in arb_config(),
         // 1..20 so division is meaningful (0 handled separately).
         qualified_users in 1u32..20,
     ) {
-        let pool = Decimal::from(pool_minor);
         let outcome = distribute(pool, &config, qualified_users).expect("Some outcome");
-        // per_qualified_user * qualified_users must not exceed the total by
-        // more than a tiny Decimal rounding epsilon. Decimal division rounds
-        // to 28 places of precision, so the round-trip product can differ
-        // from the dividend by a fraction of the smallest unit.
-        let distributed = outcome.per_qualified_user * Decimal::from(qualified_users);
-        let epsilon = Decimal::new(1, 6); // 0.000001
-        let overshoot = distributed - outcome.profit_share_total;
+        // per_qualified_user * qualified_users must not exceed the total.
+        // Due to integer division truncation, per_qualified_user * qualified_users <= profit_share_total.
+        let distributed = outcome.per_qualified_user * i64::from(qualified_users);
         prop_assert!(
-            overshoot <= epsilon,
-            "distributed ({distributed}) overshoots profit_share_total ({}) by {overshoot}",
+            distributed <= outcome.profit_share_total,
+            "distributed ({distributed}) cannot exceed profit_share_total ({})",
             outcome.profit_share_total
         );
     }
 
     #[test]
     fn distribution_never_exceeds_pool(
-        pool_minor in 0i64..10_000,
+        pool in 0i64..10_000,
         config in arb_config(),
         qualified_users in 0u32..20,
     ) {
-        let pool = Decimal::from(pool_minor);
         let outcome = distribute(pool, &config, qualified_users).expect("Some outcome");
-        let top_cycler_sum: Decimal = outcome.top_cycler_payouts.iter().copied().sum();
+        let top_cycler_sum: i64 = outcome.top_cycler_payouts.iter().copied().sum();
         let total = outcome.profit_share_total + top_cycler_sum;
         prop_assert!(
             total <= pool,
@@ -100,12 +88,11 @@ proptest! {
 
     #[test]
     fn zero_qualified_users_means_zero_per_user(
-        pool_minor in 0i64..10_000,
+        pool in 0i64..10_000,
         config in arb_config(),
     ) {
-        let pool = Decimal::from(pool_minor);
         let outcome = distribute(pool, &config, 0).expect("Some outcome (top cycler weights present)");
-        prop_assert_eq!(outcome.per_qualified_user, Decimal::ZERO);
+        prop_assert_eq!(outcome.per_qualified_user, 0);
         prop_assert_eq!(outcome.qualified_user_count, 0);
     }
 

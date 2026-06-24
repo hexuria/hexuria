@@ -58,10 +58,9 @@ impl Module for RoyalFlushlineModule {
         if state.account.is_none() {
             let owner_user_id = extract_owner_user_id(ctx)?;
             let mut account =
-                RoyalFlushlineAccount::new(ctx.company_id, enrollment_id, owner_user_id);
+                RoyalFlushlineAccount::new(enrollment_id, owner_user_id);
             account.created_at = ctx.now;
             result.emit(
-                Some(ctx.company_id),
                 EventType::RoyalFlushlineAccountCreated,
                 json!({
                     "royal_account_id": account.id,
@@ -85,7 +84,6 @@ impl Module for RoyalFlushlineModule {
                         let graduated_now = !before_graduated && next.graduated;
                         if graduated_now {
                             result.emit(
-                                Some(ctx.company_id),
                                 EventType::RoyalFlushlineGraduated,
                                 json!({
                                     "royal_account_id": next.id,
@@ -96,7 +94,6 @@ impl Module for RoyalFlushlineModule {
                             );
                         } else if next.current_tier != before_tier {
                             result.emit(
-                                Some(ctx.company_id),
                                 EventType::RoyalFlushlineAccountCreated,
                                 json!({
                                     "royal_account_id": next.id,

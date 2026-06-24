@@ -1,5 +1,4 @@
 use chrono::{DateTime, Utc};
-use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -11,7 +10,6 @@ use crate::payplan::ledger::{LedgerStatus, RewardLedgerEntry};
 use crate::payplan::module::{ModuleContext, ModuleResult};
 use crate::payplan::registry::Module;
 use crate::shared::ids::{LedgerEntryId, UserId};
-use crate::shared::money::Money;
 
 /// Per-(node) pairing state.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -130,31 +128,27 @@ impl Module for BinaryPairingModule {
                         .insert("period_id".into(), json!(pid));
                 }
                 result.emit(
-                    Some(ctx.company_id),
                     EventType::BinaryPairMatched,
                     pair_payload,
                 );
 
-                if !outcome.commission.is_zero() {
+                if outcome.points > 0 {
                     result.emit(
-                        Some(ctx.company_id),
                         EventType::BinaryCommissionEarned,
                         json!({
                             "node_user_id": user_id,
-                            "amount": outcome.commission.to_string(),
+                            "points": outcome.points,
                             "capped": outcome.capped,
                         }),
                     );
                     result.ledger_entries.push(RewardLedgerEntry {
                         id: LedgerEntryId::new(),
-                        company_id: ctx.company_id,
                         user_id,
                         enrollment_id: ctx.enrollment_id,
                         package_id: Some(ctx.package_id),
                         source_module: "binary.pairing_bonus".into(),
                         source_event_id: ctx.triggering_event.as_ref().map(|e| e.id),
-                        amount: Money::new(outcome.commission, "USD"),
-                        points: 0,
+                        points: outcome.points,
                         status: LedgerStatus::Pending,
                         reason: "binary.pairing.commission".into(),
                         created_at: ts,
@@ -172,7 +166,3 @@ impl Module for BinaryPairingModule {
         Ok(result)
     }
 }
-
-// Decimal typecheck - keep Decimal import live.
-#[allow(dead_code)]
-const _DECIMAL: Decimal = Decimal::ZERO;

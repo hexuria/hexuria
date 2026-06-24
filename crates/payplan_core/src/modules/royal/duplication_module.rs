@@ -106,11 +106,9 @@ impl Module for RoyalAccountDuplicationModule {
             // state schema). We emit the event with enough metadata for downstream consumers (or
             // an engine-side orchestrator) to materialize the account.
             result.emit(
-                Some(ctx.company_id),
                 EventType::RoyalAccountDuplicated,
                 json!({
                     "owner_user_id": user_id,
-                    "company_id": ctx.company_id,
                     "package_id": ctx.package_id,
                     "source_enrollment_id": ctx.enrollment_id,
                     "new_royal_account_id": RoyalAccountId::new(),

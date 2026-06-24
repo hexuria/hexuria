@@ -117,7 +117,7 @@ impl StackRunner {
 
     /// Run the stack against `triggering`, threading state through `state_cache`.
     ///
-    /// `ctx` provides company/package/enrollment. `aggregate_id` falls back to
+    /// `ctx` provides package/enrollment. `aggregate_id` falls back to
     /// the enrollment id when not set explicitly on the context.
     pub fn run(
         &self,
@@ -154,11 +154,11 @@ impl StackRunner {
             }
 
             // Resolve the aggregate for state I/O based on the module's scope.
-            // Company-scoped modules (binary tree/carryover, royal pot) share
-            // one state row per company; everything else scopes to the
+            // Global-scoped modules (binary tree/carryover, royal pot) share
+            // one state row globally (using Uuid::nil()); everything else scopes to the
             // enrollment (falling back via `ctx.state_aggregate()`).
             let aggregate_id = match module.scope() {
-                crate::payplan::registry::AggregateScope::Company => ctx.company_id.0,
+                crate::payplan::registry::AggregateScope::Global => Uuid::nil(),
                 crate::payplan::registry::AggregateScope::Enrollment => {
                     let Some(aggregate_id) = ctx.state_aggregate() else {
                         return Err(CoreError::Validation(format!(
@@ -208,7 +208,7 @@ mod tests {
     use crate::payplan::events::EventType;
     use crate::payplan::registry::Module;
     use crate::payplan::stack::{PayPlanStackStatus, StackModule};
-    use crate::shared::ids::{CompanyId, PackageId, PayPlanStackId};
+    use crate::shared::ids::{PackageId, PayPlanStackId};
     use chrono::Utc;
     use serde_json::json;
 
@@ -236,7 +236,6 @@ mod tests {
 
         let stack = PayPlanStack {
             id: PayPlanStackId::new(),
-            company_id: CompanyId::new(),
             name: "Test".into(),
             version: 1,
             status: PayPlanStackStatus::Active,
@@ -252,14 +251,13 @@ mod tests {
 
         let event = DomainEvent {
             id: crate::shared::ids::EventId::new(),
-            company_id: Some(stack.company_id),
             event_type: EventType::PackagePurchased,
             payload: json!({}),
             created_at: Utc::now(),
         };
 
         let ctx =
-            ModuleContext::new(stack.company_id, PackageId::new()).with_aggregate(Uuid::now_v7());
+            ModuleContext::new(PackageId::new()).with_aggregate(Uuid::now_v7());
         let mut cache = StateCache::new();
         let result = runner
             .run(&stack, &event, &ctx, &mut cache)
@@ -272,7 +270,6 @@ mod tests {
         let runner = StackRunner::new(ModuleRegistry::new());
         let stack = PayPlanStack {
             id: PayPlanStackId::new(),
-            company_id: CompanyId::new(),
             name: "Empty".into(),
             version: 1,
             status: PayPlanStackStatus::Draft,
@@ -281,13 +278,12 @@ mod tests {
         };
         let event = DomainEvent {
             id: crate::shared::ids::EventId::new(),
-            company_id: Some(stack.company_id),
             event_type: EventType::PackagePurchased,
             payload: json!({}),
             created_at: Utc::now(),
         };
         let ctx =
-            ModuleContext::new(stack.company_id, PackageId::new()).with_aggregate(Uuid::now_v7());
+            ModuleContext::new(PackageId::new()).with_aggregate(Uuid::now_v7());
         let mut cache = StateCache::new();
         let err = runner.run(&stack, &event, &ctx, &mut cache).unwrap_err();
         assert!(matches!(err, CoreError::Validation(_)));
@@ -331,7 +327,6 @@ mod tests {
 
         let stack = PayPlanStack {
             id: PayPlanStackId::new(),
-            company_id: CompanyId::new(),
             name: "Counter".into(),
             version: 1,
             status: PayPlanStackStatus::Active,
@@ -346,13 +341,12 @@ mod tests {
         };
         let event = DomainEvent {
             id: crate::shared::ids::EventId::new(),
-            company_id: Some(stack.company_id),
             event_type: EventType::PackagePurchased,
             payload: json!({}),
             created_at: Utc::now(),
         };
         let agg = Uuid::now_v7();
-        let ctx = ModuleContext::new(stack.company_id, PackageId::new()).with_aggregate(agg);
+        let ctx = ModuleContext::new(PackageId::new()).with_aggregate(agg);
         let mut cache = StateCache::new();
 
         runner.run(&stack, &event, &ctx, &mut cache).unwrap();
@@ -377,7 +371,6 @@ mod tests {
 
         let stack = PayPlanStack {
             id: PayPlanStackId::new(),
-            company_id: CompanyId::new(),
             name: "Counter".into(),
             version: 1,
             status: PayPlanStackStatus::Active,
@@ -392,7 +385,6 @@ mod tests {
         };
         let event = DomainEvent {
             id: crate::shared::ids::EventId::new(),
-            company_id: Some(stack.company_id),
             event_type: EventType::PackagePurchased,
             payload: json!({}),
             created_at: Utc::now(),
@@ -402,12 +394,12 @@ mod tests {
         let agg_b = Uuid::now_v7();
         let mut cache = StateCache::new();
 
-        let ctx_a = ModuleContext::new(stack.company_id, PackageId::new()).with_aggregate(agg_a);
+        let ctx_a = ModuleContext::new(PackageId::new()).with_aggregate(agg_a);
         runner.run(&stack, &event, &ctx_a, &mut cache).unwrap();
         runner.run(&stack, &event, &ctx_a, &mut cache).unwrap();
         runner.run(&stack, &event, &ctx_a, &mut cache).unwrap();
 
-        let ctx_b = ModuleContext::new(stack.company_id, PackageId::new()).with_aggregate(agg_b);
+        let ctx_b = ModuleContext::new(PackageId::new()).with_aggregate(agg_b);
         runner.run(&stack, &event, &ctx_b, &mut cache).unwrap();
 
         let state_a = cache.get("test.counter", "1.0.0", agg_a).unwrap();

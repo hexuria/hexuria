@@ -1,9 +1,9 @@
 use leptos::prelude::*;
 use payplan_app::queries::{
-    BillingRow, CatalogRow, CompanyRow, PackageRow, Page, PurchaseRow, UserRow,
+    BillingRow, CatalogRow, PackageRow, Page, PurchaseRow, UserRow,
 };
 
-use super::{CreateBillingForm, CreateCatalogForm, CreateCompanyForm, Pagination};
+use super::{CreateBillingForm, CreateCatalogForm, Pagination};
 
 #[component]
 pub(crate) fn PackageContent(page: Page<PackageRow>) -> impl IntoView {
@@ -19,22 +19,6 @@ pub(crate) fn PackageContent(page: Page<PackageRow>) -> impl IntoView {
                         </tr>
                     }).collect_view()}
                 </tbody>
-            </table>
-            <Pagination page=page.page page_size=page.page_size total=page.total_items/>
-        </div>
-    }
-}
-
-#[component]
-pub(crate) fn CompanyContent(page: Page<CompanyRow>) -> impl IntoView {
-    view! {
-        <CreateCompanyForm/>
-        <div class="panel table-wrap">
-            <table>
-                <thead><tr><th>"Company"</th><th>"Slug"</th><th>"Status"</th><th>"Created"</th></tr></thead>
-                <tbody>{page.items.into_iter().map(|row| view! {
-                    <tr><td>{row.name}</td><td>{row.slug}</td><td>{row.status}</td><td>{date(row.created_at)}</td></tr>
-                }).collect_view()}</tbody>
             </table>
             <Pagination page=page.page page_size=page.page_size total=page.total_items/>
         </div>

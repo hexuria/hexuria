@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::shared::ids::{BinaryNodeId, CompanyId, PurchaseId};
+use crate::shared::ids::{BinaryNodeId, PurchaseId};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinaryVolumeConfig {
@@ -22,7 +22,6 @@ impl Default for BinaryVolumeConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinaryVolumeEntry {
     pub id: uuid::Uuid,
-    pub company_id: CompanyId,
     pub source_purchase_id: Option<PurchaseId>,
     pub leg: crate::modules::binary::tree::BinaryLeg,
     pub volume: i64,

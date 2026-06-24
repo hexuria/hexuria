@@ -8,16 +8,16 @@ use crate::payplan::module::{ModuleContext, ModuleResult};
 /// Which aggregate a module's persisted state is keyed to.
 ///
 /// Most modules track per-member progress and scope to the enrollment. A few
-/// (the binary genealogy tree, its carryover, and the company-wide royal pot)
-/// are shared across every member of a company and MUST scope to the company —
+/// (the binary genealogy tree, its carryover, and the system-wide royal pot)
+/// are shared across every member of the single-tenant system and MUST scope to global —
 /// otherwise each enrollment loads an empty state and no shared structure (e.g.
 /// the binary tree) ever forms.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AggregateScope {
     /// State is keyed to the triggering enrollment (the default).
     Enrollment,
-    /// State is keyed to the company; shared across all enrollments.
-    Company,
+    /// State is keyed to the global aggregate; shared across all enrollments.
+    Global,
 }
 
 /// A pay plan compensation module.
@@ -42,7 +42,7 @@ pub trait Module: Send + Sync {
 
     /// The aggregate this module's state is scoped to. Defaults to
     /// [`AggregateScope::Enrollment`]; genealogy/company-wide modules override
-    /// this to [`AggregateScope::Company`] so they share one state row.
+    /// this to [`AggregateScope::Global`] so they share one state row.
     fn scope(&self) -> AggregateScope {
         AggregateScope::Enrollment
     }

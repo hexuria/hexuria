@@ -1,15 +1,11 @@
 use serde::{Deserialize, Serialize};
 
-use crate::shared::ids::{BinaryNodeId, CompanyId};
+use crate::shared::ids::BinaryNodeId;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BinaryCarryover {
     pub left_volume: i64,
     pub right_volume: i64,
-    /// Owning company. Populated by the carryover module from `ctx.company_id`
-    /// so the projector can materialize `binary_carryover` without a DB lookup.
-    #[serde(default)]
-    pub company_id: Option<CompanyId>,
     /// Node the carryover applies to. Resolved via the `BinaryCycleClosed`
     /// event payload's `node_id` (Track B); `None` until then and the
     /// projector skips the row.
@@ -31,7 +27,6 @@ impl BinaryCarryover {
             right_volume: right.max(0),
             // Keys are populated by the caller (the carryover module) from
             // `ctx`/event payload after construction.
-            company_id: None,
             node_id: None,
         }
     }

@@ -1,17 +1,14 @@
-use crate::shared::ids::{CompanyId, EnrollmentId, EventId, LedgerEntryId, PackageId, UserId};
-use crate::shared::money::Money;
+use crate::shared::ids::{EnrollmentId, EventId, LedgerEntryId, PackageId, UserId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RewardLedgerEntry {
     pub id: LedgerEntryId,
-    pub company_id: CompanyId,
     pub user_id: UserId,
     pub enrollment_id: Option<EnrollmentId>,
     pub package_id: Option<PackageId>,
     pub source_module: String,
     pub source_event_id: Option<EventId>,
-    pub amount: Money,
     pub points: i64,
     pub status: LedgerStatus,
     pub reason: String,

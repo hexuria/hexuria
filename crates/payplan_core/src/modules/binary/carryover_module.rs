@@ -45,10 +45,10 @@ impl Module for BinaryCarryoverModule {
         &[EventType::BinaryPairMatched]
     }
 
-    /// Carryover tracks the company-wide binary tree's unmatched leg volume, so
-    /// it shares the company aggregate with `binary.tree`.
+    /// Carryover tracks the system-wide binary tree's unmatched leg volume, so
+    /// it shares the global aggregate with `binary.tree`.
     fn scope(&self) -> AggregateScope {
-        AggregateScope::Company
+        AggregateScope::Global
     }
 
     fn run(&self, ctx: &ModuleContext) -> CoreResult<ModuleResult> {
@@ -81,9 +81,8 @@ impl Module for BinaryCarryoverModule {
             state.carry.left_volume + left_unmatched,
             state.carry.right_volume + right_unmatched,
         );
-        // Carry the projection keys through: company from ctx, node_id from the
-        // event payload when present (pairing forwards it).
-        next.company_id = Some(ctx.company_id);
+        // Carry the projection keys through: node_id from the event payload when present
+        // (pairing forwards it).
         next.node_id = event
             .payload
             .get("node_id")
@@ -93,7 +92,6 @@ impl Module for BinaryCarryoverModule {
             .or(state.carry.node_id);
 
         result.emit(
-            Some(ctx.company_id),
             EventType::BinaryCarryoverUpdated,
             json!({
                 "left": next.left_volume,
@@ -119,25 +117,22 @@ impl Module for BinaryCarryoverModule {
 mod tests {
     use super::*;
     use crate::payplan::events::DomainEvent;
-    use crate::shared::ids::{CompanyId, EventId, PackageId};
+    use crate::shared::ids::{EventId, PackageId};
     use serde_json::json;
 
     fn pair_matched(left: i64, right: i64, matched: i64) -> DomainEvent {
         DomainEvent {
             id: EventId::new(),
-            company_id: Some(CompanyId::new()),
             event_type: EventType::BinaryPairMatched,
             payload: json!({ "left": left, "right": right, "matched": matched }),
             created_at: chrono::Utc::now(),
         }
     }
 
-    /// Task 8: left=10, right=7 → matched=7 → carryover left=3, right=0.
     #[test]
     fn carries_unmatched_remainder_from_pair_event() {
         let module = BinaryCarryoverModule::new();
-        let company = CompanyId::new();
-        let ctx = ModuleContext::new(company, PackageId::new()).with_event(pair_matched(10, 7, 7));
+        let ctx = ModuleContext::new(PackageId::new()).with_event(pair_matched(10, 7, 7));
         let result = module.run(&ctx).expect("run");
 
         let state: CarryoverState =
@@ -150,20 +145,18 @@ mod tests {
             .any(|e| e.event_type == EventType::BinaryCarryoverUpdated));
     }
 
-    /// Carry accumulates across cycles: a second remainder adds to the first.
     #[test]
     fn carryover_accumulates_across_cycles() {
         let module = BinaryCarryoverModule::new();
-        let company = CompanyId::new();
 
         // Cycle 1: left=5 over.
-        let ctx1 = ModuleContext::new(company, PackageId::new()).with_event(pair_matched(8, 3, 3));
+        let ctx1 = ModuleContext::new(PackageId::new()).with_event(pair_matched(8, 3, 3));
         let s1: CarryoverState =
             serde_json::from_value(module.run(&ctx1).unwrap().state_change.unwrap()).unwrap();
         assert_eq!(s1.carry.left_volume, 5);
 
         // Cycle 2: left=2 more over, fed prior carry as state → total left=7.
-        let ctx2 = ModuleContext::new(company, PackageId::new())
+        let ctx2 = ModuleContext::new(PackageId::new())
             .with_event(pair_matched(4, 2, 2))
             .with_module_state(serde_json::to_value(&s1).unwrap());
         let s2: CarryoverState =

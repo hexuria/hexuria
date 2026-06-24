@@ -1,4 +1,3 @@
-use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -7,10 +6,10 @@ pub struct BinaryPairingConfig {
     pub left_ratio: u32,
     /// Number of right-volume units required to match one left unit.
     pub right_ratio: u32,
-    /// Commission percentage (0..=100) applied to matched volume.
-    pub commission_percent: u8,
-    /// Optional cap (in minor currency units) on payout per cycle.
-    pub max_payout_amount_minor: Option<i64>,
+    /// Payout percentage (0..=100) applied to matched volume to calculate points.
+    pub payout_percent: u8,
+    /// Optional cap on points payout per cycle.
+    pub max_points_per_cycle: Option<i64>,
 }
 
 impl Default for BinaryPairingConfig {
@@ -18,8 +17,8 @@ impl Default for BinaryPairingConfig {
         Self {
             left_ratio: 1,
             right_ratio: 1,
-            commission_percent: 10,
-            max_payout_amount_minor: None,
+            payout_percent: 10,
+            max_points_per_cycle: None,
         }
     }
 }
@@ -28,35 +27,33 @@ impl Default for BinaryPairingConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BinaryPairingOutcome {
     pub matched_volume: i64,
-    pub commission: Decimal,
+    pub points: i64,
     pub capped: bool,
 }
 
-/// Compute the matched volume and commission for one cycle.
+/// Compute the matched volume and points for one cycle.
 #[must_use]
 pub fn compute_pairing(left: i64, right: i64, cfg: &BinaryPairingConfig) -> BinaryPairingOutcome {
     debug_assert!(cfg.left_ratio > 0 && cfg.right_ratio > 0);
-    debug_assert!(cfg.commission_percent <= 100);
+    debug_assert!(cfg.payout_percent <= 100);
 
     // Effective volume on each leg after applying the ratio.
     let left_eff = left / i64::from(cfg.left_ratio);
     let right_eff = right / i64::from(cfg.right_ratio);
     let matched = left_eff.min(right_eff).max(0);
 
-    let mut commission =
-        Decimal::from(matched) * Decimal::from(cfg.commission_percent) / Decimal::from(100u32);
+    let mut points = matched * i64::from(cfg.payout_percent) / 100;
     let mut capped = false;
-    if let Some(cap) = cfg.max_payout_amount_minor {
-        let cap_d = Decimal::from(cap);
-        if commission > cap_d {
-            commission = cap_d;
+    if let Some(cap) = cfg.max_points_per_cycle {
+        if points > cap {
+            points = cap;
             capped = true;
         }
     }
 
     BinaryPairingOutcome {
         matched_volume: matched,
-        commission,
+        points,
         capped,
     }
 }
@@ -64,14 +61,13 @@ pub fn compute_pairing(left: i64, right: i64, cfg: &BinaryPairingConfig) -> Bina
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
 
     #[test]
     fn equal_legs_match_full_volume() {
         let cfg = BinaryPairingConfig::default();
         let out = compute_pairing(100, 100, &cfg);
         assert_eq!(out.matched_volume, 100);
-        assert_eq!(out.commission, dec!(10));
+        assert_eq!(out.points, 10);
         assert!(!out.capped);
     }
 
@@ -80,7 +76,7 @@ mod tests {
         let cfg = BinaryPairingConfig::default();
         let out = compute_pairing(100, 40, &cfg);
         assert_eq!(out.matched_volume, 40);
-        assert_eq!(out.commission, dec!(4));
+        assert_eq!(out.points, 4);
     }
 
     #[test]
@@ -96,14 +92,14 @@ mod tests {
     }
 
     #[test]
-    fn cap_limits_commission() {
+    fn cap_limits_points() {
         let cfg = BinaryPairingConfig {
-            max_payout_amount_minor: Some(5),
+            max_points_per_cycle: Some(5),
             ..Default::default()
         };
         let out = compute_pairing(100, 100, &cfg);
         assert_eq!(out.matched_volume, 100);
-        assert_eq!(out.commission, dec!(5));
+        assert_eq!(out.points, 5);
         assert!(out.capped);
     }
 }

@@ -65,16 +65,14 @@ impl Module for RoyalMatrixModule {
                 let needs_new_matrix =
                     state.matrices.is_empty() || state.matrices.last().is_none_or(|m| m.is_full());
                 if needs_new_matrix {
-                    let mut matrix = RoyalMatrix::new(ctx.company_id, owner);
+                    let mut matrix = RoyalMatrix::new(owner);
                     matrix.created_at = ctx.now;
                     state.matrices.push(matrix.clone());
                     result.emit(
-                        Some(ctx.company_id),
                         EventType::RoyalMatrixCreated,
                         json!({
                             "matrix_id": matrix.id,
                             "owner_account_id": matrix.owner_account_id,
-                            "company_id": matrix.company_id,
                         }),
                     );
                 }
@@ -87,7 +85,6 @@ impl Module for RoyalMatrixModule {
                     if last.is_full() {
                         last.cycle();
                         result.emit(
-                            Some(ctx.company_id),
                             EventType::RoyalMatrixCycled,
                             json!({
                                 "matrix_id": last.id,

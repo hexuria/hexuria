@@ -1,7 +1,6 @@
 use axum::http::request::Parts;
 use leptos::prelude::*;
-use payplan_app::queries::{PageRequest, TenantScope};
-use payplan_core::platform::user::UserRole;
+use payplan_app::queries::PageRequest;
 use payplan_web::session::AuthUser;
 use serde::Deserialize;
 
@@ -34,14 +33,4 @@ pub(crate) fn request_query() -> PageQuery {
 
 pub(crate) fn current_user() -> Option<AuthUser> {
     use_context::<Parts>().and_then(|parts| parts.extensions.get::<AuthUser>().cloned())
-}
-
-pub(crate) fn scope(auth: &AuthUser) -> TenantScope {
-    if auth.role == UserRole::PlatformAdmin {
-        TenantScope::Platform
-    } else {
-        auth.company_id
-            .map(TenantScope::Company)
-            .unwrap_or(TenantScope::Platform)
-    }
 }

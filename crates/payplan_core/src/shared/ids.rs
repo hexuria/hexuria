@@ -51,7 +51,6 @@ macro_rules! id_type {
     };
 }
 
-id_type!(CompanyId);
 id_type!(UserId);
 id_type!(CatalogItemId);
 id_type!(BillingPlanId);
@@ -66,3 +65,4 @@ id_type!(EventId);
 id_type!(RoyalAccountId);
 id_type!(RoyalMatrixId);
 id_type!(BinaryNodeId);
+id_type!(ProductPayPlanAllocationId);

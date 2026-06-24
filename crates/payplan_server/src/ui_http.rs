@@ -9,8 +9,8 @@ use axum::{
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use payplan_app::auth::{login, refresh_tokens, revoke_tokens, AuthDeps, LoginInput};
 use payplan_app::commands::{
-    handle_create_billing_plan, handle_create_catalog_item, handle_create_company,
-    CreateBillingPlanCommand, CreateCatalogItemCommand, CreateCompanyCommand,
+    handle_create_billing_plan, handle_create_catalog_item,
+    CreateBillingPlanCommand, CreateCatalogItemCommand,
 };
 use payplan_core::platform::catalog::{
     BillingType, CatalogItemType, RecurrenceInterval, RecurringSettings,
@@ -32,7 +32,6 @@ pub(crate) fn action_routes() -> Router<ServerState> {
     Router::new()
         .route("/login", post(login_action))
         .route("/logout", post(logout_action))
-        .route("/companies", post(create_company_action))
         .route("/catalog", post(create_catalog_action))
         .route("/billing", post(create_billing_action))
         .route("/jobs/renewals", post(run_renewals_action))
@@ -67,7 +66,6 @@ pub(crate) async fn require_ui_auth(
                 Ok(pair) => {
                     request.extensions_mut().insert(AuthUser {
                         user_id: pair.user_id,
-                        company_id: pair.company_id,
                         role: pair.role,
                     });
                     let response = next.run(request).await;
@@ -186,7 +184,6 @@ fn safe_next(next: Option<&str>) -> &'static str {
     match next {
         Some("/dashboard") => "/dashboard",
         Some("/packages") => "/packages",
-        Some("/companies") => "/companies",
         Some("/catalog") => "/catalog",
         Some("/billing") => "/billing",
         Some("/purchases") => "/purchases",
@@ -200,7 +197,6 @@ fn login_redirect(path: &str) -> Response {
     let destination = match path {
         "/dashboard" => "/login?next=/dashboard",
         "/packages" => "/login?next=/packages",
-        "/companies" => "/login?next=/companies",
         "/catalog" => "/login?next=/catalog",
         "/billing" => "/login?next=/billing",
         "/purchases" => "/login?next=/purchases",
@@ -216,7 +212,6 @@ fn is_protected_ui_path(path: &str) -> bool {
         path,
         "/dashboard"
             | "/packages"
-            | "/companies"
             | "/catalog"
             | "/billing"
             | "/purchases"
@@ -307,7 +302,7 @@ enum JobKind {
 }
 
 async fn run_job(state: &ServerState, auth: &AuthUser, kind: JobKind) -> Response {
-    if auth.role != UserRole::PlatformAdmin {
+    if !auth.is_admin() {
         return StatusCode::FORBIDDEN.into_response();
     }
     let deps = purchase_deps(&state.app);
@@ -323,36 +318,6 @@ async fn run_job(state: &ServerState, auth: &AuthUser, kind: JobKind) -> Respons
             Redirect::to("/jobs?error=job_failed").into_response()
         }
     }
-}
-
-#[derive(Deserialize)]
-struct CompanyForm {
-    name: String,
-    slug: String,
-}
-
-async fn create_company_action(
-    State(state): State<ServerState>,
-    Extension(auth): Extension<AuthUser>,
-    headers: HeaderMap,
-    Form(form): Form<CompanyForm>,
-) -> Response {
-    if let Some(response) = invalid_origin_response(&headers) {
-        return response;
-    }
-    if auth.role != UserRole::PlatformAdmin {
-        return StatusCode::FORBIDDEN.into_response();
-    }
-    let result = handle_create_company(
-        CreateCompanyCommand {
-            name: form.name,
-            slug: form.slug,
-        },
-        state.app.companies.as_ref(),
-        &state.app.pool,
-    )
-    .await;
-    action_redirect(result, "/companies")
 }
 
 #[derive(Deserialize)]
@@ -372,10 +337,7 @@ async fn create_catalog_action(
     if let Some(response) = invalid_origin_response(&headers) {
         return response;
     }
-    let Some(company_id) = auth.company_id else {
-        return StatusCode::FORBIDDEN.into_response();
-    };
-    if !auth.role.can_admin_company() {
+    if !auth.is_admin() {
         return StatusCode::FORBIDDEN.into_response();
     }
     let item_type = match form.item_type.as_str() {
@@ -385,7 +347,6 @@ async fn create_catalog_action(
     };
     let result = handle_create_catalog_item(
         CreateCatalogItemCommand {
-            company_id,
             name: form.name,
             description: form.description.filter(|value| !value.trim().is_empty()),
             sku: form.sku.filter(|value| !value.trim().is_empty()),
@@ -416,7 +377,7 @@ async fn create_billing_action(
     if let Some(response) = invalid_origin_response(&headers) {
         return response;
     }
-    if !auth.role.can_admin_company() {
+    if !auth.is_admin() {
         return StatusCode::FORBIDDEN.into_response();
     }
     let catalog_item_id = CatalogItemId::from(form.catalog_item_id);
@@ -427,7 +388,7 @@ async fn create_billing_action(
             return Redirect::to("/billing?error=internal").into_response();
         }
     };
-    let item = match state.app.catalog.get_item(catalog_item_id, &mut conn).await {
+    let _item = match state.app.catalog.get_item(catalog_item_id, &mut conn).await {
         Ok(Some(item)) => item,
         Ok(None) => return Redirect::to("/billing?error=not_found").into_response(),
         Err(error) => {
@@ -435,9 +396,6 @@ async fn create_billing_action(
             return Redirect::to("/billing?error=internal").into_response();
         }
     };
-    if auth.role != UserRole::PlatformAdmin && Some(item.company_id) != auth.company_id {
-        return StatusCode::FORBIDDEN.into_response();
-    }
     drop(conn);
     let billing_type = match form.billing_type.as_str() {
         "one_time" => BillingType::OneTime,

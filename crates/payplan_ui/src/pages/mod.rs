@@ -9,5 +9,5 @@ pub(crate) use dashboard::DashboardPage;
 pub(crate) use jobs::JobsPage;
 pub(crate) use landing::LandingPage;
 pub(crate) use lists::{
-    BillingPage, CatalogPage, CompaniesPage, PackagesPage, PurchasesPage, UsersPage,
+    BillingPage, CatalogPage, PackagesPage, PurchasesPage, UsersPage,
 };

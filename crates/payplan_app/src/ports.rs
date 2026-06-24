@@ -5,8 +5,7 @@ use payplan_core::payplan::events::DomainEvent;
 use payplan_core::payplan::ledger::RewardLedgerEntry;
 use payplan_core::payplan::runner::StateChange;
 use payplan_core::payplan::stack::PayPlanStack;
-use payplan_core::platform::catalog::{BillingPlan, CatalogItem};
-use payplan_core::platform::company::Company;
+use payplan_core::platform::catalog::{BillingPlan, CatalogItem, ProductPayPlanAllocation};
 use payplan_core::platform::enrollment::Enrollment;
 use payplan_core::platform::entitlement::Entitlement;
 use payplan_core::platform::package::Package;
@@ -14,8 +13,8 @@ use payplan_core::platform::purchase::Purchase;
 use payplan_core::platform::subscription::Subscription;
 use payplan_core::platform::user::User;
 use payplan_core::shared::ids::{
-    BillingPlanId, CatalogItemId, CompanyId, EnrollmentId, LedgerEntryId, PackageId,
-    PayPlanStackId, PurchaseId, SubscriptionId, UserId,
+    BillingPlanId, CatalogItemId, EnrollmentId, LedgerEntryId, PackageId,
+    PayPlanStackId, ProductPayPlanAllocationId, PurchaseId, SubscriptionId, UserId,
 };
 
 use crate::error::AppResult;
@@ -70,9 +69,7 @@ impl TokenKind {
 pub struct TokenClaims {
     /// Subject: the user id.
     pub sub: uuid::Uuid,
-    /// The user's company (None for platform admins without a company).
-    pub company_id: Option<uuid::Uuid>,
-    /// `"user"` | `"company_admin"` | `"platform_admin"`.
+    /// `"user"` | `"admin"`.
     pub role: String,
     /// Unique token id; used as the `revoked_jti` primary key.
     pub jti: String,
@@ -99,14 +96,12 @@ pub trait TokenService: Send + Sync {
     async fn issue_access(
         &self,
         sub: uuid::Uuid,
-        company_id: Option<uuid::Uuid>,
         role: &str,
     ) -> AppResult<TokenClaims>;
     /// Build a long-lived refresh token.
     async fn issue_refresh(
         &self,
         sub: uuid::Uuid,
-        company_id: Option<uuid::Uuid>,
         role: &str,
     ) -> AppResult<TokenClaims>;
     /// Encode a claims shell into a signed token string.
@@ -207,13 +202,6 @@ pub trait UnitOfWork: Send + Sync {
 }
 
 #[async_trait]
-pub trait CompanyRepo: Send + Sync {
-    async fn insert(&self, company: &Company, conn: &mut PgConnection) -> AppResult<()>;
-    async fn get(&self, id: CompanyId, conn: &mut PgConnection) -> AppResult<Option<Company>>;
-    async fn list(&self, conn: &mut PgConnection) -> AppResult<Vec<Company>>;
-}
-
-#[async_trait]
 pub trait UserRepo: Send + Sync {
     async fn insert(&self, user: &User, conn: &mut PgConnection) -> AppResult<()>;
     async fn get(&self, id: UserId, conn: &mut PgConnection) -> AppResult<Option<User>>;
@@ -230,7 +218,6 @@ pub trait CatalogRepo: Send + Sync {
     ) -> AppResult<Option<CatalogItem>>;
     async fn list_items(
         &self,
-        company_id: CompanyId,
         conn: &mut PgConnection,
     ) -> AppResult<Vec<CatalogItem>>;
     async fn insert_billing_plan(
@@ -249,8 +236,7 @@ pub trait CatalogRepo: Send + Sync {
 pub trait PackageRepo: Send + Sync {
     async fn insert(&self, package: &Package, conn: &mut PgConnection) -> AppResult<()>;
     async fn get(&self, id: PackageId, conn: &mut PgConnection) -> AppResult<Option<Package>>;
-    async fn list(&self, company_id: CompanyId, conn: &mut PgConnection)
-        -> AppResult<Vec<Package>>;
+    async fn list(&self, conn: &mut PgConnection) -> AppResult<Vec<Package>>;
 }
 
 #[async_trait]
@@ -263,7 +249,6 @@ pub trait PayPlanStackRepo: Send + Sync {
     ) -> AppResult<Option<PayPlanStack>>;
     async fn next_version(
         &self,
-        company_id: CompanyId,
         name: &str,
         conn: &mut PgConnection,
     ) -> AppResult<u32>;
@@ -310,4 +295,13 @@ pub trait EnrollmentRepo: Send + Sync {
         user_id: UserId,
         conn: &mut PgConnection,
     ) -> AppResult<Vec<Enrollment>>;
+}
+
+#[async_trait]
+pub trait AllocationRepo: Send + Sync {
+    async fn insert(&self, allocation: &ProductPayPlanAllocation, conn: &mut PgConnection) -> AppResult<()>;
+    async fn get(&self, id: ProductPayPlanAllocationId, conn: &mut PgConnection) -> AppResult<Option<ProductPayPlanAllocation>>;
+    async fn list_for_products(&self, product_ids: &[CatalogItemId], conn: &mut PgConnection) -> AppResult<Vec<ProductPayPlanAllocation>>;
+    async fn list_all(&self, conn: &mut PgConnection) -> AppResult<Vec<ProductPayPlanAllocation>>;
+    async fn delete(&self, id: ProductPayPlanAllocationId, conn: &mut PgConnection) -> AppResult<()>;
 }

@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::shared::ids::{CompanyId, EnrollmentId, RoyalAccountId, UserId};
+use crate::shared::ids::{EnrollmentId, RoyalAccountId, UserId};
 
 /// Tier order from lowest to highest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -82,7 +82,6 @@ impl Default for RoyalFlushlineConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RoyalFlushlineAccount {
     pub id: RoyalAccountId,
-    pub company_id: CompanyId,
     pub enrollment_id: EnrollmentId,
     pub owner_user_id: UserId,
     pub current_tier: RoyalTier,
@@ -94,10 +93,9 @@ pub struct RoyalFlushlineAccount {
 
 impl RoyalFlushlineAccount {
     #[must_use]
-    pub fn new(company_id: CompanyId, enrollment_id: EnrollmentId, owner_user_id: UserId) -> Self {
+    pub fn new(enrollment_id: EnrollmentId, owner_user_id: UserId) -> Self {
         Self {
             id: RoyalAccountId::new(),
-            company_id,
             enrollment_id,
             owner_user_id,
             current_tier: RoyalTier::Ten,
@@ -169,7 +167,7 @@ mod tests {
     use super::*;
 
     fn account() -> RoyalFlushlineAccount {
-        RoyalFlushlineAccount::new(CompanyId::new(), EnrollmentId::new(), UserId::new())
+        RoyalFlushlineAccount::new(EnrollmentId::new(), UserId::new())
     }
 
     #[test]

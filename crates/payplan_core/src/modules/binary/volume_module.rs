@@ -93,7 +93,6 @@ impl Module for BinaryVolumeModule {
 
         let entry = BinaryVolumeEntry {
             id: uuid::Uuid::now_v7(),
-            company_id: ctx.company_id,
             source_purchase_id: purchase_id,
             leg,
             volume,
@@ -104,7 +103,6 @@ impl Module for BinaryVolumeModule {
         state.totals = state.totals.add(leg, volume);
 
         result.emit(
-            Some(ctx.company_id),
             EventType::BinaryVolumeAdded,
             json!({
                 "leg": leg_str,

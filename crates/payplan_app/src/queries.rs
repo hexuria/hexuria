@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use payplan_core::shared::ids::{CompanyId, UserId};
+use payplan_core::shared::ids::UserId;
 use serde::{Deserialize, Serialize};
 
 use crate::error::AppResult;
@@ -49,15 +49,8 @@ pub struct Page<T> {
     pub total_items: u64,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum TenantScope {
-    Company(CompanyId),
-    Platform,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DashboardView {
-    pub company_count: u64,
     pub user_count: u64,
     pub package_count: u64,
     pub purchase_count: u64,
@@ -65,18 +58,8 @@ pub struct DashboardView {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CompanyRow {
-    pub id: CompanyId,
-    pub name: String,
-    pub slug: String,
-    pub status: String,
-    pub created_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserRow {
     pub id: UserId,
-    pub company_id: Option<CompanyId>,
     pub email: String,
     pub role: String,
     pub email_verified: bool,
@@ -86,7 +69,6 @@ pub struct UserRow {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CatalogRow {
     pub id: uuid::Uuid,
-    pub company_id: CompanyId,
     pub name: String,
     pub item_type: String,
     pub sku: Option<String>,
@@ -97,7 +79,6 @@ pub struct CatalogRow {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BillingRow {
     pub id: uuid::Uuid,
-    pub company_id: CompanyId,
     pub catalog_item_name: String,
     pub billing_type: String,
     pub price: String,
@@ -109,7 +90,6 @@ pub struct BillingRow {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackageRow {
     pub id: uuid::Uuid,
-    pub company_id: CompanyId,
     pub name: String,
     pub status: String,
     pub item_count: u64,
@@ -119,7 +99,6 @@ pub struct PackageRow {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PurchaseRow {
     pub id: uuid::Uuid,
-    pub company_id: CompanyId,
     pub user_id: UserId,
     pub package_name: String,
     pub amount: String,
@@ -130,29 +109,12 @@ pub struct PurchaseRow {
 
 #[async_trait]
 pub trait AdminQueryService: Send + Sync {
-    async fn dashboard(&self, scope: TenantScope) -> AppResult<DashboardView>;
-    async fn companies(&self, request: PageRequest) -> AppResult<Page<CompanyRow>>;
-    async fn users(&self, scope: TenantScope, request: PageRequest) -> AppResult<Page<UserRow>>;
-    async fn catalog(
-        &self,
-        scope: TenantScope,
-        request: PageRequest,
-    ) -> AppResult<Page<CatalogRow>>;
-    async fn billing(
-        &self,
-        scope: TenantScope,
-        request: PageRequest,
-    ) -> AppResult<Page<BillingRow>>;
-    async fn packages(
-        &self,
-        scope: TenantScope,
-        request: PageRequest,
-    ) -> AppResult<Page<PackageRow>>;
-    async fn purchases(
-        &self,
-        scope: TenantScope,
-        request: PageRequest,
-    ) -> AppResult<Page<PurchaseRow>>;
+    async fn dashboard(&self) -> AppResult<DashboardView>;
+    async fn users(&self, request: PageRequest) -> AppResult<Page<UserRow>>;
+    async fn catalog(&self, request: PageRequest) -> AppResult<Page<CatalogRow>>;
+    async fn billing(&self, request: PageRequest) -> AppResult<Page<BillingRow>>;
+    async fn packages(&self, request: PageRequest) -> AppResult<Page<PackageRow>>;
+    async fn purchases(&self, request: PageRequest) -> AppResult<Page<PurchaseRow>>;
 }
 
 #[cfg(test)]

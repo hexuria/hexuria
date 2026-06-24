@@ -1,5 +1,5 @@
 use crate::shared::ids::{
-    CatalogItemId, CompanyId, EntitlementId, PackageId, PurchaseId, SubscriptionId, UserId,
+    CatalogItemId, EntitlementId, PackageId, PurchaseId, SubscriptionId, UserId,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Entitlement {
     pub id: EntitlementId,
-    pub company_id: CompanyId,
     pub user_id: UserId,
     pub package_id: PackageId,
     pub catalog_item_id: CatalogItemId,

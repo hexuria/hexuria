@@ -1,5 +1,4 @@
 pub mod catalog;
-pub mod company;
 pub mod enrollment;
 pub mod entitlement;
 pub mod package;

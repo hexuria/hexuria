@@ -19,30 +19,30 @@ proptest! {
         prop_assert!(out.matched_volume <= right, "matched {} > right {}", out.matched_volume, right);
     }
 
-    /// Commission percentage and matched volume are both non-negative.
+    /// Payout percentage and matched volume are both non-negative.
     #[test]
-    fn commission_is_non_negative(
+    fn points_is_non_negative(
         left in 0i64..10_000,
         right in 0i64..10_000,
         pct in 0u8..=100u8,
     ) {
-        let cfg = BinaryPairingConfig { commission_percent: pct, ..Default::default() };
+        let cfg = BinaryPairingConfig { payout_percent: pct, ..Default::default() };
         let out = compute_pairing(left, right, &cfg);
-        prop_assert!(out.commission >= rust_decimal::Decimal::ZERO);
+        prop_assert!(out.points >= 0);
     }
 
-    /// When commission_percent is 0, commission is 0 regardless of matched volume.
+    /// When payout_percent is 0, points is 0 regardless of matched volume.
     #[test]
-    fn zero_percent_means_zero_commission(
+    fn zero_percent_means_zero_points(
         left in 0i64..10_000,
         right in 0i64..10_000,
     ) {
-        let cfg = BinaryPairingConfig { commission_percent: 0, ..Default::default() };
+        let cfg = BinaryPairingConfig { payout_percent: 0, ..Default::default() };
         let out = compute_pairing(left, right, &cfg);
-        prop_assert_eq!(out.commission, rust_decimal::Decimal::ZERO);
+        prop_assert_eq!(out.points, 0);
     }
 
-    /// When max payout cap is set, commission never exceeds the cap.
+    /// When max payout cap is set, points never exceeds the cap.
     #[test]
     fn cap_is_respected(
         left in 1i64..10_000,
@@ -51,15 +51,15 @@ proptest! {
         pct in 1u8..=100u8,
     ) {
         let cfg = BinaryPairingConfig {
-            commission_percent: pct,
-            max_payout_amount_minor: Some(cap),
+            payout_percent: pct,
+            max_points_per_cycle: Some(cap),
             ..Default::default()
         };
         let out = compute_pairing(left, right, &cfg);
-        prop_assert!(out.commission <= rust_decimal::Decimal::from(cap),
-            "commission {} exceeded cap {}", out.commission, cap);
-        if out.commission == rust_decimal::Decimal::from(cap) {
-            prop_assert!(out.capped, "should be marked capped when commission == cap");
+        prop_assert!(out.points <= cap,
+            "points {} exceeded cap {}", out.points, cap);
+        if out.points == cap {
+            prop_assert!(out.capped, "should be marked capped when points == cap");
         }
     }
 

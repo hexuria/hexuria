@@ -10,7 +10,7 @@ use crate::payplan::module::{ModuleContext, ModuleResult};
 use crate::payplan::registry::{AggregateScope, Module};
 use crate::shared::ids::{BinaryNodeId, UserId};
 
-/// Per-(company) tree state. Maps `user_id -> BinaryNodeId`.
+/// Per-(system) tree state. Maps `user_id -> BinaryNodeId`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BinaryTreeState {
     pub nodes: Vec<BinaryNode>,
@@ -68,11 +68,11 @@ impl Module for BinaryTreeModule {
         &[EventType::EnrollmentCreated, EventType::BinaryNodePlaced]
     }
 
-    /// The binary tree is a single company-wide genealogy. Scoping it to the
+    /// The binary tree is a single system-wide genealogy. Scoping it to the
     /// enrollment would make every member load an empty tree and place itself
     /// as a root — no tree would ever form.
     fn scope(&self) -> AggregateScope {
-        AggregateScope::Company
+        AggregateScope::Global
     }
 
     fn run(&self, ctx: &ModuleContext) -> CoreResult<ModuleResult> {
@@ -124,15 +124,12 @@ impl Module for BinaryTreeModule {
             sponsor_user_id: sponsor,
             parent_node_id: parent_id,
             leg,
-            // Keys for the `binary_nodes` projection target table.
-            company_id: Some(ctx.company_id),
             enrollment_id: ctx.enrollment_id,
         };
         state.nodes.push(node.clone());
         state.user_to_node.insert(user_id, new_id);
 
         result.emit(
-            Some(ctx.company_id),
             EventType::BinaryNodePlaced,
             json!({
                 "node_id": new_id,
@@ -288,7 +285,6 @@ mod tests {
             sponsor_user_id: None,
             parent_node_id: None,
             leg: None,
-            company_id: None,
             enrollment_id: None,
         }]);
         let (p, l) = pick_autobalance(&state);

@@ -7,14 +7,16 @@ use axum::Form;
 use payplan_app::auth::{login, refresh_tokens, revoke_tokens, role_str, AuthDeps, LoginInput};
 use payplan_app::commands::{
     default_module_registry, handle_create_billing_plan, handle_create_catalog_item,
-    handle_create_company, handle_create_package, handle_purchase_package, handle_register_user,
-    CreateBillingPlanCommand, CreateCatalogItemCommand, CreateCompanyCommand, CreatePackageCommand,
+    handle_create_package, handle_purchase_package, handle_register_user,
+    handle_create_product_payplan_allocation, handle_delete_product_payplan_allocation,
+    CreateBillingPlanCommand, CreateCatalogItemCommand, CreatePackageCommand,
     PurchaseDeps, PurchasePackageCommand, RegisterUserCommand,
+    CreateProductPayPlanAllocationCommand, DeleteProductPayPlanAllocationCommand,
 };
 use payplan_app::error::AppError;
 use payplan_core::platform::catalog::CatalogItemType;
 use payplan_core::platform::package::PackageItem;
-use payplan_core::shared::ids::{CompanyId, PackageId, UserId};
+use payplan_core::shared::ids::{PackageId, UserId};
 use payplan_infra::operations::{close_binary_cycles, run_renewals, run_royal_pot_distribution};
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
@@ -92,32 +94,8 @@ impl From<AppError> for ApiError {
     }
 }
 
-/// Resolve the company a write should target (IDOR guard — REMEDIATION_PLAN
-/// Task 6). Company admins are pinned to their own company: a body-supplied
-/// `company_id` that targets a DIFFERENT company is rejected with 403 so a
-/// company-A admin can't create resources under company B. Only platform admins
-/// may target an arbitrary company via the body.
-fn effective_company(
-    auth: &crate::session::AuthUser,
-    body_company_id: uuid::Uuid,
-) -> Result<CompanyId, ApiError> {
-    if auth.can_admin_platform() {
-        return Ok(CompanyId::from(body_company_id));
-    }
-    let own = auth
-        .company_id
-        .ok_or_else(|| ApiError::forbidden("caller is not scoped to a company"))?;
-    if own.0 != body_company_id {
-        return Err(ApiError::forbidden(
-            "cannot create resources for another company",
-        ));
-    }
-    Ok(own)
-}
-
 #[derive(Debug, Deserialize)]
 pub struct CreateCatalogItemBody {
-    pub company_id: uuid::Uuid,
     pub name: String,
     pub description: Option<String>,
     pub sku: Option<String>,
@@ -130,14 +108,15 @@ pub async fn create_catalog_item_handler(
     auth: crate::session::AuthUser,
     Json(body): Json<CreateCatalogItemBody>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    if !auth.is_admin() {
+        return Err(ApiError::forbidden("only admins can manage catalog items"));
+    }
     let item_type = match body.item_type.as_str() {
         "product" => CatalogItemType::Product,
         "service" => CatalogItemType::Service,
         other => return Err(ApiError::bad_request(format!("unknown item_type: {other}"))),
     };
-    let company_id = effective_company(&auth, body.company_id)?;
     let cmd = CreateCatalogItemCommand {
-        company_id,
         name: body.name,
         description: body.description,
         sku: body.sku,
@@ -150,34 +129,9 @@ pub async fn create_catalog_item_handler(
 }
 
 #[derive(Debug, Deserialize)]
-pub struct CreateCompanyBody {
-    pub name: String,
-    pub slug: String,
-}
-
-#[instrument(skip(ctx, body))]
-pub async fn create_company_handler(
-    State(ctx): State<AppContext>,
-    Json(body): Json<CreateCompanyBody>,
-) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    let cmd = CreateCompanyCommand {
-        name: body.name,
-        slug: body.slug,
-    };
-    let c = handle_create_company(cmd, ctx.companies.as_ref(), &ctx.pool)
-        .await
-        .map_err(ApiError::from)?;
-    Ok((StatusCode::CREATED, Json(to_json(&c)?)))
-}
-
-#[derive(Debug, Deserialize)]
 pub struct RegisterUserBody {
     pub email: String,
     pub password: String,
-    pub company_id: Option<uuid::Uuid>,
-    // NOTE: `role` is intentionally absent on the public signup endpoint.
-    // All users self-registering get `UserRole::User`; admin roles are only
-    // assignable via seed data or a future admin-gated endpoint.
 }
 
 #[instrument(skip(ctx, body))]
@@ -190,7 +144,6 @@ pub async fn register_user_handler(
         email: body.email,
         password: body.password,
         role,
-        company_id: body.company_id.map(CompanyId::from),
     };
     let u = handle_register_user(cmd, ctx.users.as_ref(), ctx.passwords.as_ref(), &ctx.pool)
         .await
@@ -206,11 +159,11 @@ pub async fn register_user_handler(
 #[derive(Debug, Deserialize)]
 pub struct CreateBillingPlanBody {
     pub catalog_item_id: uuid::Uuid,
-    pub billing_type: String,
     pub price_amount: rust_decimal::Decimal,
     pub currency: String,
-    pub recurring_interval: Option<String>,
-    pub recurring_interval_count: Option<u32>,
+    pub billing_type: String, // "one_time" | "recurring"
+    pub recurrence_interval: Option<String>, // "weekly" | "monthly" | "quarterly" | "annual"
+    pub recurrence_count: Option<u32>,
     pub trial_days: Option<u32>,
     pub grace_period_days: Option<u32>,
 }
@@ -224,30 +177,21 @@ pub async fn create_billing_plan_handler(
     let billing_type = match body.billing_type.as_str() {
         "one_time" => payplan_core::platform::catalog::BillingType::OneTime,
         "recurring" => payplan_core::platform::catalog::BillingType::Recurring,
-        other => {
-            return Err(ApiError::bad_request(format!(
-                "unknown billing_type: {other}"
-            )))
-        }
+        other => return Err(ApiError::bad_request(format!("unknown billing_type: {other}"))),
     };
-    let recurring = if billing_type == payplan_core::platform::catalog::BillingType::Recurring {
-        let interval = body.recurring_interval.as_deref().ok_or_else(|| {
-            ApiError::bad_request("recurring billing requires recurring_interval")
-        })?;
-        let interval_enum = match interval {
-            "daily" => payplan_core::platform::catalog::RecurrenceInterval::Daily,
+
+    let recurring = if matches!(billing_type, payplan_core::platform::catalog::BillingType::Recurring) {
+        let interval = body
+            .recurrence_interval
+            .ok_or_else(|| ApiError::bad_request("recurrence_interval required for recurring billing"))?;
+        let interval_enum = match interval.as_str() {
             "weekly" => payplan_core::platform::catalog::RecurrenceInterval::Weekly,
             "monthly" => payplan_core::platform::catalog::RecurrenceInterval::Monthly,
             "quarterly" => payplan_core::platform::catalog::RecurrenceInterval::Quarterly,
-            "yearly" => payplan_core::platform::catalog::RecurrenceInterval::Yearly,
-            other => return Err(ApiError::bad_request(format!("unknown interval: {other}"))),
+            "annual" => payplan_core::platform::catalog::RecurrenceInterval::Yearly,
+            other => return Err(ApiError::bad_request(format!("unknown recurrence_interval: {other}"))),
         };
-        let interval_count = body.recurring_interval_count.unwrap_or(1);
-        if interval_count == 0 {
-            return Err(ApiError::bad_request(
-                "recurring_interval_count must be > 0",
-            ));
-        }
+        let interval_count = body.recurrence_count.unwrap_or(0);
         Some(payplan_core::platform::catalog::RecurringSettings {
             interval: interval_enum,
             interval_count,
@@ -258,26 +202,21 @@ pub async fn create_billing_plan_handler(
         None
     };
 
-    // IDOR guard (Task 6): a billing plan inherits its tenant from the catalog
-    // item it references. Verify the referenced item belongs to the caller's
-    // company (platform admins may target any item).
     let catalog_item_id = payplan_core::shared::ids::CatalogItemId::from(body.catalog_item_id);
     let mut conn = ctx
         .pool
         .acquire()
         .await
         .map_err(|e| ApiError::internal("acquire connection", e))?;
-    let item = ctx
+    let _item = ctx
         .catalog
         .get_item(catalog_item_id, conn.as_mut())
         .await
         .map_err(ApiError::from)?
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "catalog item not found"))?;
     drop(conn);
-    if !auth.can_admin_platform() && Some(item.company_id) != auth.company_id {
-        return Err(ApiError::forbidden(
-            "catalog item belongs to a different company",
-        ));
+    if !auth.is_admin() {
+        return Err(ApiError::forbidden("only admins can manage billing plans"));
     }
 
     let cmd = CreateBillingPlanCommand {
@@ -296,36 +235,23 @@ pub async fn create_billing_plan_handler(
 pub async fn list_packages_handler(
     State(ctx): State<AppContext>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    // For simplicity: list all packages across all companies. In real API,
-    // extract company_id from auth context.
     let mut pool_conn = ctx
         .pool
         .acquire()
         .await
         .map_err(|e| ApiError::internal("acquire connection", e))?;
-    let companies = ctx
-        .companies
+    let pkgs = ctx
+        .packages
         .list(pool_conn.as_mut())
         .await
         .map_err(ApiError::from)?;
-    let mut all = Vec::new();
-    for c in companies {
-        let pkgs = ctx
-            .packages
-            .list(c.id, pool_conn.as_mut())
-            .await
-            .map_err(ApiError::from)?;
-        all.extend(pkgs);
-    }
-    Ok(Json(to_json(&all)?))
+    Ok(Json(to_json(&pkgs)?))
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CreatePackageBody {
-    pub company_id: uuid::Uuid,
     pub name: String,
     pub description: Option<String>,
-    pub pay_plan_stack_id: Option<uuid::Uuid>,
     pub items: Vec<PackageItemBody>,
 }
 
@@ -336,8 +262,6 @@ pub struct PackageItemBody {
     pub quantity: u32,
     pub role: String,
     pub is_commissionable: bool,
-    pub commissionable_volume: u32,
-    pub points_value: u32,
 }
 
 impl From<PackageItemBody> for PackageItem {
@@ -353,8 +277,6 @@ impl From<PackageItemBody> for PackageItem {
                 _ => payplan_core::platform::package::PackageItemRole::Included,
             },
             is_commissionable: b.is_commissionable,
-            commissionable_volume: b.commissionable_volume,
-            points_value: b.points_value,
         }
     }
 }
@@ -365,14 +287,12 @@ pub async fn create_package_handler(
     auth: crate::session::AuthUser,
     Json(body): Json<CreatePackageBody>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    let company_id = effective_company(&auth, body.company_id)?;
+    if !auth.is_admin() {
+        return Err(ApiError::forbidden("only admins can manage packages"));
+    }
     let cmd = CreatePackageCommand {
-        company_id,
         name: body.name,
         description: body.description,
-        pay_plan_stack_id: body
-            .pay_plan_stack_id
-            .map(payplan_core::shared::ids::PayPlanStackId::from),
         items: body.items.into_iter().map(Into::into).collect(),
     };
     let pkg = handle_create_package(cmd, ctx.packages.as_ref(), &ctx.pool)
@@ -383,7 +303,6 @@ pub async fn create_package_handler(
 
 #[derive(Debug, Deserialize)]
 pub struct PurchaseBody {
-    pub company_id: uuid::Uuid,
     pub user_id: uuid::Uuid,
     pub package_id: uuid::Uuid,
     pub sponsor_user_id: Option<uuid::Uuid>,
@@ -411,7 +330,6 @@ pub async fn purchase_package_handler(
         ));
     }
     let cmd = PurchasePackageCommand {
-        company_id: CompanyId::from(body.company_id),
         user_id: UserId::from(body.user_id),
         package_id: PackageId::from(body.package_id),
         sponsor_user_id: body.sponsor_user_id.map(UserId::from),
@@ -466,6 +384,7 @@ pub fn purchase_deps(ctx: &AppContext) -> PurchaseDeps<'_> {
         entitlements: ctx.entitlements.as_ref(),
         enrollments: ctx.enrollments.as_ref(),
         pay_plan_stacks: ctx.pay_plan_stacks.as_ref(),
+        allocations: ctx.allocations.as_ref(),
         events: ctx.events.as_ref(),
         ledger: ctx.ledger.as_ref(),
         registry: ctx.registry.clone(),
@@ -507,6 +426,51 @@ pub async fn close_binary_cycles_handler(
         .await
         .map_err(ApiError::from)?;
     Ok(Json(JobResult { processed }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateAllocationBody {
+    pub catalog_item_id: uuid::Uuid,
+    pub pay_plan_stack_id: uuid::Uuid,
+    pub points: i64,
+}
+
+#[instrument(skip(ctx, body))]
+pub async fn create_allocation_handler(
+    State(ctx): State<AppContext>,
+    auth: crate::session::AuthUser,
+    Json(body): Json<CreateAllocationBody>,
+) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    if !auth.is_admin() {
+        return Err(ApiError::forbidden("only admins can manage allocations"));
+    }
+    let cmd = CreateProductPayPlanAllocationCommand {
+        catalog_item_id: payplan_core::shared::ids::CatalogItemId::from(body.catalog_item_id),
+        pay_plan_stack_id: payplan_core::shared::ids::PayPlanStackId::from(body.pay_plan_stack_id),
+        points: body.points,
+    };
+    let allocation = handle_create_product_payplan_allocation(cmd, ctx.allocations.as_ref(), &ctx.pool)
+        .await
+        .map_err(ApiError::from)?;
+    Ok((StatusCode::CREATED, Json(to_json(&allocation)?)))
+}
+
+#[instrument(skip(ctx))]
+pub async fn delete_allocation_handler(
+    State(ctx): State<AppContext>,
+    auth: crate::session::AuthUser,
+    Path(id): Path<uuid::Uuid>,
+) -> Result<StatusCode, ApiError> {
+    if !auth.is_admin() {
+        return Err(ApiError::forbidden("only admins can manage allocations"));
+    }
+    let cmd = DeleteProductPayPlanAllocationCommand {
+        id: payplan_core::shared::ids::ProductPayPlanAllocationId::from(id),
+    };
+    handle_delete_product_payplan_allocation(cmd, ctx.allocations.as_ref(), &ctx.pool)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // Re-export kept for symmetry with future Leptos server functions.

@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use crate::payplan::events::{DomainEvent, EventType};
 use crate::payplan::ledger::RewardLedgerEntry;
-use crate::shared::ids::{CompanyId, EnrollmentId, EventId, PackageId};
+use crate::shared::ids::{EnrollmentId, EventId, PackageId};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModuleResult {
@@ -38,10 +38,9 @@ impl ModuleResult {
             && self.warnings.is_empty()
     }
 
-    pub fn emit(&mut self, company_id: Option<CompanyId>, event_type: EventType, payload: Value) {
+    pub fn emit(&mut self, event_type: EventType, payload: Value) {
         self.emitted_events.push(DomainEvent {
             id: EventId::new(),
-            company_id,
             event_type,
             payload,
             created_at: Utc::now(),
@@ -61,7 +60,6 @@ impl ModuleResult {
 /// persisted state before calling `run`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModuleContext {
-    pub company_id: CompanyId,
     pub package_id: PackageId,
     pub enrollment_id: Option<EnrollmentId>,
     /// The aggregate ID used for state persistence (the `module_state` table's
@@ -82,9 +80,8 @@ pub struct ModuleContext {
 
 impl ModuleContext {
     #[must_use]
-    pub fn new(company_id: CompanyId, package_id: PackageId) -> Self {
+    pub fn new(package_id: PackageId) -> Self {
         Self {
-            company_id,
             package_id,
             enrollment_id: None,
             aggregate_id: None,

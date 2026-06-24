@@ -16,7 +16,7 @@ use payplan_app::commands::{
     default_module_registry, handle_purchase_package, PurchaseDeps, PurchasePackageCommand,
 };
 use payplan_app::ports::{
-    CatalogRepo, CompanyRepo, EnrollmentRepo, EntitlementRepo, EventStore, PackageRepo,
+    AllocationRepo, CatalogRepo, EnrollmentRepo, EntitlementRepo, EventStore, PackageRepo,
     PayPlanStackRepo, PurchaseRepo, RewardLedgerStore, SubscriptionRepo, UserRepo,
 };
 use payplan_core::payplan::events::DomainEvent;
@@ -25,19 +25,19 @@ use payplan_core::payplan::registry::ModuleRegistry;
 use payplan_core::payplan::stack::{PayPlanStack, PayPlanStackStatus, StackModule};
 use payplan_core::platform::catalog::{
     BillingPlan, BillingType, CatalogItem, CatalogItemStatus, CatalogItemType,
+    ProductPayPlanAllocation,
 };
-use payplan_core::platform::company::{Company, CompanyStatus};
 use payplan_core::platform::package::{Package, PackageItem, PackageItemRole, PackageStatus};
 use payplan_core::shared::ids::{
-    BillingPlanId, CatalogItemId, CompanyId, EnrollmentId, PackageId, PayPlanStackId, PurchaseId,
-    SubscriptionId, UserId,
+    BillingPlanId, CatalogItemId, EnrollmentId, PackageId, PayPlanStackId,
+    ProductPayPlanAllocationId, PurchaseId, SubscriptionId, UserId,
 };
 use rust_decimal_macros::dec;
 use serde_json::json;
 
 #[derive(Default)]
 struct InMemoryStores {
-    companies: Mutex<HashMap<uuid::Uuid, Company>>,
+    allocations: Mutex<HashMap<uuid::Uuid, ProductPayPlanAllocation>>,
     users: Mutex<HashMap<uuid::Uuid, payplan_core::platform::user::User>>,
     catalog_items: Mutex<HashMap<uuid::Uuid, CatalogItem>>,
     billing_plans: Mutex<HashMap<uuid::Uuid, BillingPlan>>,
@@ -55,27 +55,47 @@ struct InMemoryStores {
 // Implementing manually.
 
 #[async_trait]
-impl CompanyRepo for InMemoryStores {
+impl AllocationRepo for InMemoryStores {
     async fn insert(
         &self,
-        c: &Company,
+        allocation: &ProductPayPlanAllocation,
         _conn: &mut sqlx::PgConnection,
     ) -> payplan_app::error::AppResult<()> {
-        self.companies.lock().unwrap().insert(c.id.0, c.clone());
+        self.allocations.lock().unwrap().insert(allocation.id.0, allocation.clone());
         Ok(())
     }
     async fn get(
         &self,
-        id: CompanyId,
+        id: ProductPayPlanAllocationId,
         _conn: &mut sqlx::PgConnection,
-    ) -> payplan_app::error::AppResult<Option<Company>> {
-        Ok(self.companies.lock().unwrap().get(&(id.0)).cloned())
+    ) -> payplan_app::error::AppResult<Option<ProductPayPlanAllocation>> {
+        Ok(self.allocations.lock().unwrap().get(&id.0).cloned())
     }
-    async fn list(
+    async fn list_for_products(
+        &self,
+        product_ids: &[CatalogItemId],
+        _conn: &mut sqlx::PgConnection,
+    ) -> payplan_app::error::AppResult<Vec<ProductPayPlanAllocation>> {
+        let allocations = self.allocations.lock().unwrap();
+        Ok(allocations
+            .values()
+            .filter(|a| product_ids.contains(&a.catalog_item_id))
+            .cloned()
+            .collect())
+    }
+    async fn list_all(
         &self,
         _conn: &mut sqlx::PgConnection,
-    ) -> payplan_app::error::AppResult<Vec<Company>> {
-        Ok(self.companies.lock().unwrap().values().cloned().collect())
+    ) -> payplan_app::error::AppResult<Vec<ProductPayPlanAllocation>> {
+        Ok(self.allocations.lock().unwrap().values().cloned().collect())
+    }
+    async fn delete(
+        &self,
+        id: ProductPayPlanAllocationId,
+        _conn: &mut sqlx::PgConnection,
+    ) -> payplan_app::error::AppResult<()> {
+        self.allocations.lock().unwrap().remove(&id.0);
+        Ok(())
     }
 }
 
@@ -124,7 +144,6 @@ impl CatalogRepo for InMemoryStores {
     }
     async fn list_items(
         &self,
-        c: CompanyId,
         _conn: &mut sqlx::PgConnection,
     ) -> payplan_app::error::AppResult<Vec<CatalogItem>> {
         Ok(self
@@ -132,7 +151,6 @@ impl CatalogRepo for InMemoryStores {
             .lock()
             .unwrap()
             .values()
-            .filter(|i| i.company_id == c)
             .cloned()
             .collect())
     }
@@ -172,7 +190,6 @@ impl PackageRepo for InMemoryStores {
     }
     async fn list(
         &self,
-        _c: CompanyId,
         _conn: &mut sqlx::PgConnection,
     ) -> payplan_app::error::AppResult<Vec<Package>> {
         Ok(self.packages.lock().unwrap().values().cloned().collect())
@@ -198,7 +215,6 @@ impl PayPlanStackRepo for InMemoryStores {
     }
     async fn next_version(
         &self,
-        _c: CompanyId,
         _name: &str,
         _conn: &mut sqlx::PgConnection,
     ) -> payplan_app::error::AppResult<u32> {
@@ -345,12 +361,10 @@ impl RewardLedgerStore for InMemoryStores {
 
 fn seed(
     stores: &InMemoryStores,
-    company_id: CompanyId,
     with_recurring: bool,
 ) -> (PackageId, UserId) {
     let item = CatalogItem {
         id: CatalogItemId::new(),
-        company_id,
         name: "Test Item".into(),
         description: None,
         item_type: CatalogItemType::Service,
@@ -383,7 +397,6 @@ fn seed(
     };
     let stack = PayPlanStack {
         id: PayPlanStackId::new(),
-        company_id,
         name: "RFN".into(),
         version: 1,
         status: PayPlanStackStatus::Active,
@@ -414,11 +427,9 @@ fn seed(
     };
     let package = Package {
         id: PackageId::new(),
-        company_id,
         name: "Royal Flush Starter".into(),
         description: None,
         status: PackageStatus::Active,
-        pay_plan_stack_id: Some(stack.id),
         default_billing_plan_id: Some(billing.id),
         metadata: json!({}),
         created_at: Utc::now(),
@@ -428,9 +439,15 @@ fn seed(
             quantity: 1,
             role: PackageItemRole::Included,
             is_commissionable: true,
-            commissionable_volume: 50,
-            points_value: 5,
         }],
+    };
+    let allocation = ProductPayPlanAllocation {
+        id: ProductPayPlanAllocationId::new(),
+        catalog_item_id: item.id,
+        pay_plan_stack_id: stack.id,
+        points: 50,
+        active: true,
+        created_at: Utc::now(),
     };
     let user = payplan_core::platform::user::User {
         id: UserId::new(),
@@ -438,7 +455,6 @@ fn seed(
         password_hash: "$argon2id$placeholder".into(),
         email_verified: true,
         role: payplan_core::platform::user::UserRole::User,
-        company_id: None,
         created_at: Utc::now(),
     };
     let user_id = user.id;
@@ -457,6 +473,7 @@ fn seed(
         .unwrap()
         .insert(package.id.0, package);
     stores.users.lock().unwrap().insert(user.id.0, user);
+    stores.allocations.lock().unwrap().insert(allocation.id.0, allocation);
 
     (package_id, user_id)
 }
@@ -464,22 +481,9 @@ fn seed(
 #[tokio::test]
 async fn purchase_flow_emits_events_and_runs_royal_flush_modules() {
     let stores = Arc::new(InMemoryStores::default());
-    let company_id = CompanyId::new();
-    stores.companies.lock().unwrap().insert(
-        company_id.0,
-        Company {
-            id: company_id,
-            name: "Acme".into(),
-            slug: "acme".into(),
-            status: CompanyStatus::Active,
-            settings: json!({}),
-            created_at: Utc::now(),
-        },
-    );
-    let (package_id, user_id) = seed(&stores, company_id, false);
+    let (package_id, user_id) = seed(&stores, false);
 
     let cmd = PurchasePackageCommand {
-        company_id,
         user_id,
         package_id,
         sponsor_user_id: None,
@@ -503,6 +507,7 @@ async fn purchase_flow_emits_events_and_runs_royal_flush_modules() {
         entitlements: stores.as_ref(),
         enrollments: stores.as_ref(),
         pay_plan_stacks: stores.as_ref(),
+        allocations: stores.as_ref(),
         events: stores.as_ref(),
         ledger: stores.as_ref(),
         registry,
@@ -543,22 +548,9 @@ async fn purchase_flow_emits_events_and_runs_royal_flush_modules() {
 #[tokio::test]
 async fn purchase_with_recurring_creates_subscription() {
     let stores = Arc::new(InMemoryStores::default());
-    let company_id = CompanyId::new();
-    stores.companies.lock().unwrap().insert(
-        company_id.0,
-        Company {
-            id: company_id,
-            name: "Acme".into(),
-            slug: "acme".into(),
-            status: CompanyStatus::Active,
-            settings: json!({}),
-            created_at: Utc::now(),
-        },
-    );
-    let (package_id, user_id) = seed(&stores, company_id, true);
+    let (package_id, user_id) = seed(&stores, true);
 
     let cmd = PurchasePackageCommand {
-        company_id,
         user_id,
         package_id,
         sponsor_user_id: None,
@@ -582,6 +574,7 @@ async fn purchase_with_recurring_creates_subscription() {
         entitlements: stores.as_ref(),
         enrollments: stores.as_ref(),
         pay_plan_stacks: stores.as_ref(),
+        allocations: stores.as_ref(),
         events: stores.as_ref(),
         ledger: stores.as_ref(),
         registry,
@@ -596,19 +589,7 @@ async fn purchase_with_recurring_creates_subscription() {
 #[tokio::test]
 async fn inactive_package_is_rejected() {
     let stores = Arc::new(InMemoryStores::default());
-    let company_id = CompanyId::new();
-    stores.companies.lock().unwrap().insert(
-        company_id.0,
-        Company {
-            id: company_id,
-            name: "Acme".into(),
-            slug: "acme".into(),
-            status: CompanyStatus::Active,
-            settings: json!({}),
-            created_at: Utc::now(),
-        },
-    );
-    let (package_id, user_id) = seed(&stores, company_id, false);
+    let (package_id, user_id) = seed(&stores, false);
 
     // Flip package to inactive.
     {
@@ -624,7 +605,6 @@ async fn inactive_package_is_rejected() {
     }
 
     let cmd = PurchasePackageCommand {
-        company_id,
         user_id,
         package_id,
         sponsor_user_id: None,
@@ -648,6 +628,7 @@ async fn inactive_package_is_rejected() {
         entitlements: stores.as_ref(),
         enrollments: stores.as_ref(),
         pay_plan_stacks: stores.as_ref(),
+        allocations: stores.as_ref(),
         events: stores.as_ref(),
         ledger: stores.as_ref(),
         registry,

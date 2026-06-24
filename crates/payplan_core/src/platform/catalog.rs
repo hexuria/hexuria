@@ -1,13 +1,22 @@
-use crate::shared::ids::{BillingPlanId, CatalogItemId, CompanyId};
+use crate::shared::ids::{BillingPlanId, CatalogItemId, PayPlanStackId, ProductPayPlanAllocationId};
 use crate::shared::money::Money;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProductPayPlanAllocation {
+    pub id: ProductPayPlanAllocationId,
+    pub catalog_item_id: CatalogItemId,
+    pub pay_plan_stack_id: PayPlanStackId,
+    pub points: i64,
+    pub active: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CatalogItem {
     pub id: CatalogItemId,
-    pub company_id: CompanyId,
     pub name: String,
     pub description: Option<String>,
     pub item_type: CatalogItemType,

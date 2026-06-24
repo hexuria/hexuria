@@ -1,4 +1,4 @@
-use crate::shared::ids::{CompanyId, EventId};
+use crate::shared::ids::EventId;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -6,7 +6,6 @@ use serde_json::Value;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DomainEvent {
     pub id: EventId,
-    pub company_id: Option<CompanyId>,
     pub event_type: EventType,
     pub payload: Value,
     pub created_at: DateTime<Utc>,
@@ -14,7 +13,6 @@ pub struct DomainEvent {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EventType {
-    CompanyCreated,
     UserCreated,
     CatalogItemCreated,
     BillingPlanCreated,
@@ -52,7 +50,6 @@ pub enum EventType {
 impl EventType {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::CompanyCreated => "company.created",
             Self::UserCreated => "user.created",
             Self::CatalogItemCreated => "catalog_item.created",
             Self::BillingPlanCreated => "billing_plan.created",

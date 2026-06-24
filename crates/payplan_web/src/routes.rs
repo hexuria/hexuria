@@ -18,9 +18,10 @@ use tower_http::trace::TraceLayer;
 use crate::context::AppContext;
 use crate::handlers::{
     close_binary_cycles_handler, create_billing_plan_handler, create_catalog_item_handler,
-    create_company_handler, create_package_handler, health_handler, list_packages_handler,
+    create_package_handler, health_handler, list_packages_handler,
     login_handler, logout_handler, purchase_package_handler, refresh_handler,
     register_user_handler, run_renewals_handler, run_royal_pot_distribution_handler,
+    create_allocation_handler, delete_allocation_handler,
 };
 use crate::session::{require_authenticated, require_company_admin, require_platform_admin};
 
@@ -43,10 +44,11 @@ pub fn build_router(ctx: AppContext) -> Router {
 
     // CompanyAdmin+: company + catalog/billing/package creation.
     let company_admin = Router::new()
-        .route("/api/companies", post(create_company_handler))
         .route("/api/catalog_items", post(create_catalog_item_handler))
         .route("/api/billing_plans", post(create_billing_plan_handler))
         .route("/api/packages", post(create_package_handler))
+        .route("/api/allocations", post(create_allocation_handler))
+        .route("/api/allocations/:id", axum::routing::delete(delete_allocation_handler))
         .route_layer(from_fn_with_state(ctx.clone(), require_company_admin()));
 
     // PlatformAdmin: scheduled job triggers only.

@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use payplan_core::{
     platform::user::{User, UserRole},
-    shared::ids::{CompanyId, UserId},
+    shared::ids::UserId,
 };
 use sqlx::PgPool;
 
@@ -32,7 +32,6 @@ pub struct IssuedTokenPair {
     pub access_token: String,
     pub refresh_token: String,
     pub user_id: UserId,
-    pub company_id: Option<CompanyId>,
     pub role: UserRole,
 }
 
@@ -130,21 +129,19 @@ pub async fn revoke_tokens(
 
 async fn issue_pair(deps: &AuthDeps<'_>, user: User) -> AppResult<IssuedTokenPair> {
     let role = role_str(user.role);
-    let company_id = user.company_id.map(|company_id| company_id.0);
     let access = deps
         .tokens
-        .issue_access(user.id.0, company_id, role)
+        .issue_access(user.id.0, role)
         .await?;
     let refresh = deps
         .tokens
-        .issue_refresh(user.id.0, company_id, role)
+        .issue_refresh(user.id.0, role)
         .await?;
 
     Ok(IssuedTokenPair {
         access_token: deps.tokens.encode(&access).await?,
         refresh_token: deps.tokens.encode(&refresh).await?,
         user_id: user.id,
-        company_id: user.company_id,
         role: user.role,
     })
 }
@@ -153,7 +150,6 @@ async fn issue_pair(deps: &AuthDeps<'_>, user: User) -> AppResult<IssuedTokenPai
 pub fn role_str(role: UserRole) -> &'static str {
     match role {
         UserRole::User => "user",
-        UserRole::CompanyAdmin => "company_admin",
-        UserRole::PlatformAdmin => "platform_admin",
+        UserRole::Admin => "admin",
     }
 }

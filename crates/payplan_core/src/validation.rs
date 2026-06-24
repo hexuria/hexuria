@@ -8,7 +8,6 @@ use crate::platform::catalog::{
     BillingPlan, BillingType, CatalogItem, CatalogItemStatus, CatalogItemType, RecurrenceInterval,
     RecurringSettings,
 };
-use crate::platform::company::{Company, CompanyStatus};
 use crate::platform::enrollment::Enrollment;
 use crate::platform::entitlement::Entitlement;
 use crate::platform::package::{Package, PackageItem, PackageStatus};
@@ -16,7 +15,7 @@ use crate::platform::purchase::{Purchase, PurchaseStatus};
 use crate::platform::subscription::{Subscription, SubscriptionStatus};
 use crate::platform::user::{User, UserRole};
 use crate::shared::ids::{
-    BillingPlanId, CatalogItemId, CompanyId, EnrollmentId, PackageId, PurchaseId, UserId,
+    BillingPlanId, CatalogItemId, EnrollmentId, PackageId, PurchaseId, UserId,
 };
 use crate::shared::money::Money;
 use chrono::Utc;
@@ -51,44 +50,13 @@ pub fn validate_currency(code: &str) -> CoreResult<()> {
     Ok(())
 }
 
-// ------------------------------- Company -------------------------------------
-
-impl Company {
-    pub fn new(name: impl Into<String>, slug: impl Into<String>) -> CoreResult<Self> {
-        let name = name.into();
-        let slug = slug.into();
-        if name.trim().is_empty() {
-            return Err(CoreError::Validation("company name is required".into()));
-        }
-        validate_slug(&slug)?;
-        Ok(Self {
-            id: CompanyId::new(),
-            name,
-            slug,
-            status: CompanyStatus::Active,
-            settings: serde_json::json!({}),
-            created_at: Utc::now(),
-        })
-    }
-
-    pub fn validate(&self) -> CoreResult<()> {
-        if self.name.trim().is_empty() {
-            return Err(CoreError::Validation("company name is required".into()));
-        }
-        validate_slug(&self.slug)?;
-        Ok(())
-    }
-}
-
 // ------------------------------- User ----------------------------------------
 
 impl User {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         email: impl Into<String>,
         password_hash: impl Into<String>,
         role: UserRole,
-        company_id: Option<CompanyId>,
     ) -> CoreResult<Self> {
         let email = email.into();
         let password_hash = password_hash.into();
@@ -104,7 +72,6 @@ impl User {
             password_hash,
             email_verified: false,
             role,
-            company_id,
             created_at: Utc::now(),
         })
     }
@@ -127,7 +94,6 @@ impl User {
 
 impl CatalogItem {
     pub fn new(
-        company_id: CompanyId,
         name: impl Into<String>,
         item_type: CatalogItemType,
     ) -> CoreResult<Self> {
@@ -139,7 +105,6 @@ impl CatalogItem {
         }
         Ok(Self {
             id: CatalogItemId::new(),
-            company_id,
             name,
             description: None,
             item_type,
@@ -224,7 +189,6 @@ impl BillingPlan {
 
 impl Package {
     pub fn new(
-        company_id: CompanyId,
         name: impl Into<String>,
         items: Vec<PackageItem>,
     ) -> CoreResult<Self> {
@@ -239,11 +203,9 @@ impl Package {
         }
         Ok(Self {
             id: PackageId::new(),
-            company_id,
             name,
             description: None,
             status: PackageStatus::Draft,
-            pay_plan_stack_id: None,
             default_billing_plan_id: None,
             metadata: serde_json::json!({}),
             created_at: Utc::now(),
@@ -275,7 +237,6 @@ impl Package {
 
 impl Purchase {
     pub fn new(
-        company_id: CompanyId,
         user_id: UserId,
         package_id: PackageId,
         gross: Money,
@@ -289,7 +250,6 @@ impl Purchase {
         validate_currency(&gross.currency)?;
         Ok(Self {
             id: PurchaseId::new(),
-            company_id,
             user_id,
             package_id,
             sponsor_user_id,
@@ -325,14 +285,12 @@ impl Purchase {
 
 impl Subscription {
     pub fn new(
-        company_id: CompanyId,
         user_id: UserId,
         package_id: PackageId,
         billing_plan_id: BillingPlanId,
     ) -> Self {
         Self {
             id: crate::shared::ids::SubscriptionId::new(),
-            company_id,
             user_id,
             package_id,
             billing_plan_id,
@@ -348,7 +306,6 @@ impl Subscription {
 
 impl Enrollment {
     pub fn new(
-        company_id: CompanyId,
         user_id: UserId,
         package_id: PackageId,
         purchase_id: crate::shared::ids::PurchaseId,
@@ -356,7 +313,6 @@ impl Enrollment {
     ) -> Self {
         Self {
             id: EnrollmentId::new(),
-            company_id,
             user_id,
             package_id,
             purchase_id,
@@ -371,7 +327,6 @@ impl Enrollment {
 
 impl Entitlement {
     pub fn new(
-        company_id: CompanyId,
         user_id: UserId,
         package_id: PackageId,
         catalog_item_id: CatalogItemId,
@@ -380,7 +335,6 @@ impl Entitlement {
     ) -> Self {
         Self {
             id: crate::shared::ids::EntitlementId::new(),
-            company_id,
             user_id,
             package_id,
             catalog_item_id,
@@ -466,34 +420,14 @@ mod tests {
     }
 
     #[test]
-    fn company_rejects_empty_name() {
-        let err = Company::new("", "acme").unwrap_err();
-        assert!(matches!(err, CoreError::Validation(_)));
-    }
-
-    #[test]
-    fn company_rejects_bad_slug() {
-        let err = Company::new("Acme", "ACME").unwrap_err();
-        assert!(matches!(err, CoreError::Validation(_)));
-    }
-
-    #[test]
-    fn company_accepts_valid_inputs() {
-        let c = Company::new("Acme Corp", "acme-corp").unwrap();
-        assert_eq!(c.name, "Acme Corp");
-        assert_eq!(c.slug, "acme-corp");
-        c.validate().unwrap();
-    }
-
-    #[test]
     fn user_rejects_invalid_email() {
-        assert!(User::new("not-an-email", "hash", UserRole::User, None).is_err());
-        assert!(User::new("", "hash", UserRole::User, None).is_err());
+        assert!(User::new("not-an-email", "hash", UserRole::User).is_err());
+        assert!(User::new("", "hash", UserRole::User).is_err());
     }
 
     #[test]
     fn catalog_item_requires_name() {
-        assert!(CatalogItem::new(CompanyId::new(), "", CatalogItemType::Service).is_err());
+        assert!(CatalogItem::new("", CatalogItemType::Service).is_err());
     }
 
     #[test]
@@ -530,13 +464,12 @@ mod tests {
 
     #[test]
     fn package_rejects_empty_items() {
-        assert!(Package::new(CompanyId::new(), "Starter", vec![]).is_err());
+        assert!(Package::new("Starter", vec![]).is_err());
     }
 
     #[test]
     fn purchase_rejects_currency_mismatch() {
         let p = Purchase::new(
-            CompanyId::new(),
             UserId::new(),
             PackageId::new(),
             Money::new(rust_decimal_macros::dec!(10), "USD"),
@@ -551,13 +484,7 @@ mod tests {
 
     #[test]
     fn purchase_validate_rejects_negative_gross() {
-        // Task 4: the purchase path calls `purchase.validate()` before
-        // persisting. A negative gross must be rejected by that guard (the
-        // commands path builds the Purchase as a struct literal, so this
-        // `validate()` call is the only thing standing between a tampered
-        // amount and the ledger).
         let p = Purchase::new(
-            CompanyId::new(),
             UserId::new(),
             PackageId::new(),
             Money::new(rust_decimal_macros::dec!(10), "USD"),
@@ -576,7 +503,6 @@ mod tests {
     #[test]
     fn package_item_zero_quantity_is_invalid() {
         let pkg = Package::new(
-            CompanyId::new(),
             "Starter",
             vec![PackageItem {
                 catalog_item_id: CatalogItemId::new(),
@@ -584,8 +510,6 @@ mod tests {
                 quantity: 0,
                 role: crate::platform::package::PackageItemRole::Included,
                 is_commissionable: false,
-                commissionable_volume: 0,
-                points_value: 0,
             }],
         )
         .unwrap();

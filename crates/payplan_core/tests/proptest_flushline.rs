@@ -14,14 +14,13 @@
 use payplan_core::modules::royal::flushline::{
     RoyalFlushlineAccount, RoyalTier, ROYAL_GRADUATION_POINTS,
 };
-use payplan_core::shared::ids::{CompanyId, EnrollmentId, UserId};
+use payplan_core::shared::ids::{EnrollmentId, UserId};
 use proptest::prelude::*;
 
 fn arb_account() -> impl Strategy<Value = RoyalFlushlineAccount> {
     (any::<u32>(), any::<bool>(), any::<bool>()).prop_map(
         |(points, graduated, had_graduated_at)| RoyalFlushlineAccount {
             id: payplan_core::shared::ids::RoyalAccountId::new(),
-            company_id: CompanyId::new(),
             enrollment_id: EnrollmentId::new(),
             owner_user_id: UserId::new(),
             current_tier: tier_for_points(points),
@@ -158,7 +157,7 @@ proptest! {
     fn one_point_advances_ten_to_jack(
         grant in 1u32..1000,
     ) {
-        let account = RoyalFlushlineAccount::new(CompanyId::new(), EnrollmentId::new(), UserId::new());
+        let account = RoyalFlushlineAccount::new(EnrollmentId::new(), UserId::new());
         let after = account.apply_points(grant);
         prop_assert!(tier_index(after.current_tier) >= tier_index(RoyalTier::Jack));
     }

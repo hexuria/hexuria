@@ -15,7 +15,7 @@ use payplan_core::payplan::module::ModuleContext;
 use payplan_core::payplan::runner::{StackRunner, StateCache};
 use payplan_core::payplan::stack::{PayPlanStack, PayPlanStackStatus, StackModule};
 use payplan_core::shared::ids::{
-    BinaryNodeId, CompanyId, EnrollmentId, PackageId, PayPlanStackId, UserId,
+    BinaryNodeId, EnrollmentId, PackageId, PayPlanStackId, UserId,
 };
 use proptest::prelude::*;
 use serde_json::json;
@@ -24,7 +24,6 @@ use std::collections::HashMap;
 fn fresh_stack() -> PayPlanStack {
     PayPlanStack {
         id: PayPlanStackId::new(),
-        company_id: CompanyId::new(),
         name: "Binary Test".into(),
         version: 1,
         status: PayPlanStackStatus::Active,
@@ -51,12 +50,11 @@ fn run_one(
     let runner = StackRunner::new(registry);
     let event = DomainEvent {
         id: payplan_core::shared::ids::EventId::new(),
-        company_id: Some(stack.company_id),
         event_type: EventType::EnrollmentCreated,
         payload: json!({"user_id": user_id, "package_id": PackageId::new()}),
         created_at: Utc::now(),
     };
-    let ctx = ModuleContext::new(stack.company_id, PackageId::new())
+    let ctx = ModuleContext::new(PackageId::new())
         .with_enrollment(enrollment_id)
         .with_event(event)
         .with_module_state(serde_json::to_value(state).unwrap());

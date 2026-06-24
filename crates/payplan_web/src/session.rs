@@ -25,7 +25,7 @@ use axum::{
 #[allow(unused_imports)]
 use payplan_app::ports::{RevokedJtiStore, TokenKind, TokenService};
 use payplan_core::platform::user::UserRole;
-use payplan_core::shared::ids::{CompanyId, UserId};
+use payplan_core::shared::ids::UserId;
 use serde::Serialize;
 
 use crate::context::AppContext;
@@ -35,19 +35,23 @@ use crate::context::AppContext;
 #[derive(Debug, Clone)]
 pub struct AuthUser {
     pub user_id: UserId,
-    pub company_id: Option<CompanyId>,
     pub role: UserRole,
 }
 
 impl AuthUser {
+    /// True if the caller is admin.
+    pub fn is_admin(&self) -> bool {
+        self.role.is_admin()
+    }
+
     /// True if the caller may act on behalf of any user (admin impersonation).
     pub fn can_impersonate(&self) -> bool {
-        self.role.can_admin_company()
+        self.role.is_admin()
     }
 
     /// True only for platform admins, who may target any company.
     pub fn can_admin_platform(&self) -> bool {
-        self.role.can_admin_platform()
+        self.role.is_admin()
     }
 }
 
@@ -104,7 +108,7 @@ pub async fn authenticate(ctx: &AppContext, headers: &HeaderMap) -> Result<AuthU
 pub async fn authenticate_access_token(
     ctx: &AppContext,
     token: &str,
-) -> Result<AuthUser, AuthError> {
+    ) -> Result<AuthUser, AuthError> {
     let claims = ctx
         .tokens
         .verify(token, TokenKind::Access)
@@ -126,8 +130,7 @@ pub async fn authenticate_access_token(
 
     let role = match claims.role.as_str() {
         "user" => UserRole::User,
-        "company_admin" => UserRole::CompanyAdmin,
-        "platform_admin" => UserRole::PlatformAdmin,
+        "admin" => UserRole::Admin,
         other => {
             return Err(AuthError::InvalidToken(format!("unknown role: {other}")));
         }
@@ -135,7 +138,6 @@ pub async fn authenticate_access_token(
 
     Ok(AuthUser {
         user_id: UserId::from(claims.sub),
-        company_id: claims.company_id.map(CompanyId::from),
         role,
     })
 }
@@ -190,11 +192,11 @@ where
 /// Convenience: require CompanyAdmin or PlatformAdmin.
 pub fn require_company_admin(
 ) -> impl Fn(State<AppContext>, Request, Next) -> RoleFuture + Clone + Send + Sync + 'static {
-    make_role_guard(UserRole::can_admin_company)
+    make_role_guard(UserRole::is_admin)
 }
 
 /// Convenience: require PlatformAdmin only.
 pub fn require_platform_admin(
 ) -> impl Fn(State<AppContext>, Request, Next) -> RoleFuture + Clone + Send + Sync + 'static {
-    make_role_guard(UserRole::can_admin_platform)
+    make_role_guard(UserRole::is_admin)
 }

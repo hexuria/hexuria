@@ -3,23 +3,9 @@ use leptos::prelude::*;
 use crate::app::current_user;
 
 #[component]
-pub(crate) fn CreateCompanyForm() -> impl IntoView {
-    view! {
-        <details class="panel create-panel">
-            <summary>"Create company"</summary>
-            <form method="post" action="/companies">
-                <label>"Name"<input name="name" required/></label>
-                <label>"Slug"<input name="slug" pattern="[a-z0-9-]+" required/></label>
-                <button type="submit">"Create company"</button>
-            </form>
-        </details>
-    }
-}
-
-#[component]
 pub(crate) fn CreateCatalogForm() -> impl IntoView {
     let can_create = current_user()
-        .map(|auth| auth.role.can_admin_company())
+        .map(|auth| auth.is_admin())
         .unwrap_or(false);
     can_create.then(|| {
         view! {
@@ -46,7 +32,7 @@ pub(crate) fn CreateCatalogForm() -> impl IntoView {
 #[component]
 pub(crate) fn CreateBillingForm() -> impl IntoView {
     let can_create = current_user()
-        .map(|auth| auth.role.can_admin_company())
+        .map(|auth| auth.is_admin())
         .unwrap_or(false);
     can_create.then(|| view! {
         <details class="panel create-panel">

@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::shared::ids::{CompanyId, RoyalAccountId, RoyalMatrixId};
+use crate::shared::ids::{RoyalAccountId, RoyalMatrixId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum RoyalSlot {
@@ -52,7 +52,6 @@ pub enum RoyalMatrixStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoyalMatrix {
     pub id: RoyalMatrixId,
-    pub company_id: CompanyId,
     pub owner_account_id: RoyalAccountId,
     pub slots: Vec<Option<RoyalAccountId>>,
     pub status: RoyalMatrixStatus,
@@ -66,12 +65,11 @@ impl RoyalMatrix {
     pub const SLOT_COUNT: usize = 7;
 
     #[must_use]
-    pub fn new(company_id: CompanyId, owner: RoyalAccountId) -> Self {
+    pub fn new(owner: RoyalAccountId) -> Self {
         let mut slots: Vec<Option<RoyalAccountId>> = vec![None; Self::SLOT_COUNT];
         slots[0] = Some(owner);
         Self {
             id: RoyalMatrixId::new(),
-            company_id,
             owner_account_id: owner,
             slots,
             status: RoyalMatrixStatus::Filling,
@@ -135,7 +133,6 @@ mod tests {
 
     fn owner() -> RoyalAccountId {
         RoyalFlushlineAccount::new(
-            CompanyId::new(),
             crate::shared::ids::EnrollmentId::new(),
             crate::shared::ids::UserId::new(),
         )
@@ -148,7 +145,7 @@ mod tests {
 
     #[test]
     fn new_matrix_has_owner_in_slot_1() {
-        let m = RoyalMatrix::new(CompanyId::new(), owner());
+        let m = RoyalMatrix::new(owner());
         assert_eq!(m.slots[0], Some(m.owner_account_id));
         assert!(m.slots[1..].iter().all(Option::is_none));
         assert_eq!(m.filled_count(), 1);
@@ -158,7 +155,7 @@ mod tests {
 
     #[test]
     fn places_into_lowest_open_slot() {
-        let mut m = RoyalMatrix::new(CompanyId::new(), owner());
+        let mut m = RoyalMatrix::new(owner());
         let a = account_id();
         let slot = m.place_next_open(a);
         assert_eq!(slot, Some(RoyalSlot::S2));
@@ -168,7 +165,7 @@ mod tests {
 
     #[test]
     fn completing_all_slots_marks_completed() {
-        let mut m = RoyalMatrix::new(CompanyId::new(), owner());
+        let mut m = RoyalMatrix::new(owner());
         for _ in 0..6 {
             assert!(m.place_next_open(account_id()).is_some());
         }
@@ -179,7 +176,7 @@ mod tests {
 
     #[test]
     fn cycle_bumps_counter() {
-        let mut m = RoyalMatrix::new(CompanyId::new(), owner());
+        let mut m = RoyalMatrix::new(owner());
         for _ in 0..6 {
             m.place_next_open(account_id());
         }

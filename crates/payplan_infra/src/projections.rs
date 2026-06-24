@@ -13,7 +13,7 @@
 //! All upserts execute against the caller's `&mut PgConnection`, so in Path A
 //! they join the single atomic purchase transaction. The projector performs no
 //! DB lookups: every key the target table needs is carried in the augmented
-//! state struct (Track A2-A5 design decision). Rows that lack a resolvable key
+//! state struct. Rows that lack a resolvable key
 //! (e.g. `binary_volume_ledger` entries without `node_id`) are skipped with a
 //! `tracing::warn!` rather than failing the cascade — their full linkage lands
 //! with Track B (cycle-close, renewal).
@@ -62,8 +62,6 @@ impl ModuleProjector for PgProjections {
                 "binary.tree" => project_binary_nodes(change, conn).await?,
                 "binary.volume" => project_binary_volume(change, conn).await?,
                 "binary.carryover" => project_binary_carryover(change, conn).await?,
-                // Other modules (matrix, pot_bonus, duplication, sponsor) are
-                // out of scope for A2-A5 and carry no projection target yet.
                 _ => {}
             }
         }
@@ -96,9 +94,9 @@ async fn project_flushline(change: &StateChange, conn: &mut PgConnection) -> App
 
     sqlx::query(
         r#"INSERT INTO royal_flushline_accounts
-           (id, company_id, enrollment_id, owner_user_id, current_tier, current_points,
+           (id, enrollment_id, owner_user_id, current_tier, current_points,
             cycle_count, graduated, graduated_at, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
            ON CONFLICT (id) DO UPDATE SET
              current_tier    = EXCLUDED.current_tier,
              current_points  = EXCLUDED.current_points,
@@ -106,7 +104,6 @@ async fn project_flushline(change: &StateChange, conn: &mut PgConnection) -> App
              graduated_at    = EXCLUDED.graduated_at"#,
     )
     .bind(account.id)
-    .bind(account.company_id)
     .bind(account.enrollment_id)
     .bind(account.owner_user_id)
     .bind(&tier_str)
@@ -125,10 +122,6 @@ async fn project_flushline(change: &StateChange, conn: &mut PgConnection) -> App
 async fn project_binary_nodes(change: &StateChange, conn: &mut PgConnection) -> AppResult<()> {
     let state: BinaryTreeState = decode(change)?;
     for node in &state.nodes {
-        let Some(company_id) = node.company_id else {
-            warn!(node_id = %node.id, "binary.tree: node missing company_id, skipping projection");
-            continue;
-        };
         let Some(enrollment_id) = node.enrollment_id else {
             warn!(node_id = %node.id, "binary.tree: node missing enrollment_id, skipping projection");
             continue;
@@ -136,10 +129,9 @@ async fn project_binary_nodes(change: &StateChange, conn: &mut PgConnection) -> 
         let leg = node.leg.map(leg_str);
         sqlx::query(
             r#"INSERT INTO binary_nodes
-               (id, company_id, enrollment_id, user_id, sponsor_user_id, parent_node_id, leg)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)
+               (id, enrollment_id, user_id, sponsor_user_id, parent_node_id, leg)
+               VALUES ($1, $2, $3, $4, $5, $6)
                ON CONFLICT (id) DO UPDATE SET
-                 company_id      = EXCLUDED.company_id,
                  enrollment_id   = EXCLUDED.enrollment_id,
                  user_id         = EXCLUDED.user_id,
                  sponsor_user_id = EXCLUDED.sponsor_user_id,
@@ -147,7 +139,6 @@ async fn project_binary_nodes(change: &StateChange, conn: &mut PgConnection) -> 
                  leg             = EXCLUDED.leg"#,
         )
         .bind(node.id)
-        .bind(company_id)
         .bind(enrollment_id)
         .bind(node.user_id)
         .bind(node.sponsor_user_id)
@@ -176,10 +167,9 @@ async fn project_binary_volume(change: &StateChange, conn: &mut PgConnection) ->
         let status = volume_status_str(entry.status);
         sqlx::query(
             r#"INSERT INTO binary_volume_ledger
-               (id, company_id, node_id, source_purchase_id, leg, volume, status)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)
+               (id, node_id, source_purchase_id, leg, volume, status)
+               VALUES ($1, $2, $3, $4, $5, $6)
                ON CONFLICT (id) DO UPDATE SET
-                 company_id        = EXCLUDED.company_id,
                  node_id           = EXCLUDED.node_id,
                  source_purchase_id = EXCLUDED.source_purchase_id,
                  leg               = EXCLUDED.leg,
@@ -187,7 +177,6 @@ async fn project_binary_volume(change: &StateChange, conn: &mut PgConnection) ->
                  status            = EXCLUDED.status"#,
         )
         .bind(entry.id)
-        .bind(entry.company_id)
         .bind(node_id)
         .bind(entry.source_purchase_id)
         .bind(leg)
@@ -200,26 +189,21 @@ async fn project_binary_volume(change: &StateChange, conn: &mut PgConnection) ->
     Ok(())
 }
 
-/// `binary.carryover` -> `binary_carryover` (composite PK company_id, node_id).
+/// `binary.carryover` -> `binary_carryover` (PK node_id).
 async fn project_binary_carryover(change: &StateChange, conn: &mut PgConnection) -> AppResult<()> {
     let state: CarryoverState = decode(change)?;
-    let Some(company_id) = state.carry.company_id else {
-        warn!("binary.carryover: missing company_id, skipping projection");
-        return Ok(());
-    };
     let Some(node_id) = state.carry.node_id else {
         warn!("binary.carryover: missing node_id, skipping projection (Track B will link)");
         return Ok(());
     };
     sqlx::query(
         r#"INSERT INTO binary_carryover
-           (company_id, node_id, left_carryover, right_carryover)
-           VALUES ($1, $2, $3, $4)
-           ON CONFLICT (company_id, node_id) DO UPDATE SET
+           (node_id, left_carryover, right_carryover)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (node_id) DO UPDATE SET
              left_carryover  = EXCLUDED.left_carryover,
              right_carryover = EXCLUDED.right_carryover"#,
     )
-    .bind(company_id)
     .bind(node_id)
     .bind(state.carry.left_volume)
     .bind(state.carry.right_volume)
@@ -291,29 +275,9 @@ fn i64_field(payload: &serde_json::Value, key: &str) -> Option<i64> {
     payload.get(key).and_then(|v| v.as_i64())
 }
 
-fn decimal_field(payload: &serde_json::Value, key: &str) -> rust_decimal::Decimal {
-    payload
-        .get(key)
-        .and_then(|v| v.as_str())
-        .and_then(|s| s.parse().ok())
-        .or_else(|| {
-            payload
-                .get(key)
-                .and_then(|v| v.as_i64())
-                .map(rust_decimal::Decimal::from)
-        })
-        .unwrap_or(rust_decimal::Decimal::ZERO)
-}
-
 /// B1: On `RoyalAccountDuplicated`, create a new enrollment and seed a new
 /// `royal_flushline_accounts` row at the default tier (`Ten`, 0 points).
-/// The duplication module intentionally emits only metadata; this is the
-/// downstream consumer that materialises the account.
 async fn project_duplication(event: &DomainEvent, conn: &mut PgConnection) -> AppResult<()> {
-    let Some(company_id) = event.company_id else {
-        warn!("RoyalAccountDuplicated: missing company_id, skipping");
-        return Ok(());
-    };
     let Some(owner_user_id) = uuid_field(&event.payload, "owner_user_id") else {
         warn!("RoyalAccountDuplicated: missing owner_user_id, skipping");
         return Ok(());
@@ -322,22 +286,19 @@ async fn project_duplication(event: &DomainEvent, conn: &mut PgConnection) -> Ap
         warn!("RoyalAccountDuplicated: missing new_royal_account_id, skipping");
         return Ok(());
     };
-    // package_id may be null (duplication is not triggered by a purchase);
-    // re-use the source enrollment's package if available.
     let package_id = uuid_field(&event.payload, "package_id");
 
-    // 1. Create a new enrollment for the duplicated account. The schema
-    //    requires a non-null purchase_id FK, but duplication is not itself a
-    //    purchase; insert a zero-amount placeholder purchase so the FK holds.
+    // Create a new enrollment for the duplicated account. The schema
+    // requires a non-null purchase_id FK, but duplication is not itself a
+    // purchase; insert a zero-amount placeholder purchase so the FK holds.
     let new_enrollment_id = uuid::Uuid::now_v7();
     let placeholder_purchase_id = uuid::Uuid::now_v7();
     sqlx::query(
         r#"INSERT INTO purchases
-           (id, company_id, user_id, package_id, gross_amount, net_amount, currency, status, purchased_at)
-           VALUES ($1, $2, $3, $4, 0, 0, 'USD', 'paid', NOW())"#,
+           (id, user_id, package_id, gross_amount, net_amount, currency, status, purchased_at)
+           VALUES ($1, $2, $3, 0, 0, 'USD', 'paid', NOW())"#,
     )
     .bind(placeholder_purchase_id)
-    .bind(company_id)
     .bind(owner_user_id)
     .bind(package_id)
     .execute(&mut *conn)
@@ -346,11 +307,10 @@ async fn project_duplication(event: &DomainEvent, conn: &mut PgConnection) -> Ap
 
     sqlx::query(
         r#"INSERT INTO enrollments
-           (id, company_id, user_id, package_id, purchase_id, status, joined_at)
-           VALUES ($1, $2, $3, $4, $5, 'active', NOW())"#,
+           (id, user_id, package_id, purchase_id, status, joined_at)
+           VALUES ($1, $2, $3, $4, 'active', NOW())"#,
     )
     .bind(new_enrollment_id)
-    .bind(company_id)
     .bind(owner_user_id)
     .bind(package_id)
     .bind(placeholder_purchase_id)
@@ -358,15 +318,14 @@ async fn project_duplication(event: &DomainEvent, conn: &mut PgConnection) -> Ap
     .await
     .map_err(|e| AppError::Infra(format!("insert duplicated enrollment: {e}")))?;
 
-    // 2. Seed the new royal_flushline_accounts row at the default tier.
+    // Seed the new royal_flushline_accounts row at the default tier.
     sqlx::query(
         r#"INSERT INTO royal_flushline_accounts
-           (id, company_id, enrollment_id, owner_user_id, current_tier, current_points,
+           (id, enrollment_id, owner_user_id, current_tier, current_points,
             cycle_count, graduated, graduated_at, created_at)
-           VALUES ($1, $2, $3, $4, 'Ten', 0, 0, FALSE, NULL, NOW())"#,
+           VALUES ($1, $2, $3, 'Ten', 0, 0, FALSE, NULL, NOW())"#,
     )
     .bind(new_royal_account_id)
-    .bind(company_id)
     .bind(new_enrollment_id)
     .bind(owner_user_id)
     .execute(&mut *conn)
@@ -377,24 +336,20 @@ async fn project_duplication(event: &DomainEvent, conn: &mut PgConnection) -> Ap
 }
 
 /// B2: On `BinaryPairMatched`, insert a `binary_pairing_results` row. The
-/// commission amount is recovered from a companion `BinaryCommissionEarned`
+/// commission points are recovered from a companion `BinaryCommissionEarned`
 /// event in the same batch (matched by node_user_id); if absent, the row is
-/// recorded with commission_amount = 0.
+/// recorded with points = 0.
 async fn project_pairing_result(
     event: &DomainEvent,
     all_events: &[DomainEvent],
     conn: &mut PgConnection,
 ) -> AppResult<()> {
-    let Some(company_id) = event.company_id else {
-        warn!("BinaryPairMatched: missing company_id, skipping");
-        return Ok(());
-    };
     let Some(node_user_id) = uuid_field(&event.payload, "node_user_id") else {
         warn!("BinaryPairMatched: missing node_user_id, skipping");
         return Ok(());
     };
     let Some(node_id) = uuid_field(&event.payload, "node_id") else {
-        warn!("BinaryPairMatched: missing node_id, skipping (operations.rs should populate it)");
+        warn!("BinaryPairMatched: missing node_id, skipping");
         return Ok(());
     };
     let Some(period_id) = uuid_field(&event.payload, "period_id") else {
@@ -410,27 +365,26 @@ async fn project_pairing_result(
         e.event_type == EventType::BinaryCommissionEarned
             && uuid_field(&e.payload, "node_user_id") == Some(node_user_id)
     });
-    let commission_amount: rust_decimal::Decimal = match commission_event {
-        Some(ce) => decimal_field(&ce.payload, "amount"),
-        None => rust_decimal::Decimal::ZERO,
+    let points = match commission_event {
+        Some(ce) => i64_field(&ce.payload, "points").unwrap_or(0),
+        None => 0,
     };
     let ledger_entry_id: Option<uuid::Uuid> = None;
 
     sqlx::query(
         r#"INSERT INTO binary_pairing_results
-           (id, company_id, period_id, user_id, node_id, left_volume, right_volume,
-            matched_volume, commission_amount, ledger_entry_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
+           (id, period_id, user_id, node_id, left_volume, right_volume,
+            matched_volume, points, ledger_entry_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
     )
     .bind(uuid::Uuid::now_v7())
-    .bind(company_id)
     .bind(period_id)
     .bind(node_user_id)
     .bind(node_id)
     .bind(left)
     .bind(right)
     .bind(matched)
-    .bind(commission_amount)
+    .bind(points)
     .bind(ledger_entry_id)
     .execute(&mut *conn)
     .await
@@ -442,22 +396,15 @@ async fn project_pairing_result(
 /// B2: On `BinaryCycleClosed`, advance `binary_nodes.cycle_count` for the node
 /// referenced by the event payload.
 async fn advance_cycle_count(event: &DomainEvent, conn: &mut PgConnection) -> AppResult<()> {
-    let Some(company_id) = event.company_id else {
-        warn!("BinaryCycleClosed: missing company_id, skipping cycle_count advance");
-        return Ok(());
-    };
-    // Prefer node_id when present (added by close_binary_cycles); fall back to
-    // a (company_id, user_id) lookup via node_user_id.
     let node_id = uuid_field(&event.payload, "node_id");
     let node_user_id = uuid_field(&event.payload, "node_user_id");
 
     let affected = if let Some(nid) = node_id {
         sqlx::query(
             r#"UPDATE binary_nodes SET cycle_count = cycle_count + 1
-               WHERE id = $1 AND company_id = $2"#,
+               WHERE id = $1"#,
         )
         .bind(nid)
-        .bind(company_id)
         .execute(&mut *conn)
         .await
         .map_err(|e| AppError::Infra(format!("advance cycle_count by node_id: {e}")))?
@@ -465,10 +412,9 @@ async fn advance_cycle_count(event: &DomainEvent, conn: &mut PgConnection) -> Ap
     } else if let Some(uid) = node_user_id {
         sqlx::query(
             r#"UPDATE binary_nodes SET cycle_count = cycle_count + 1
-               WHERE user_id = $1 AND company_id = $2"#,
+               WHERE user_id = $1"#,
         )
         .bind(uid)
-        .bind(company_id)
         .execute(&mut *conn)
         .await
         .map_err(|e| AppError::Infra(format!("advance cycle_count by user_id: {e}")))?
@@ -480,7 +426,6 @@ async fn advance_cycle_count(event: &DomainEvent, conn: &mut PgConnection) -> Ap
 
     if affected == 0 {
         warn!(
-            company_id = %company_id,
             node_id = ?node_id,
             "BinaryCycleClosed: no binary_node matched, cycle_count not advanced"
         );
@@ -490,20 +435,12 @@ async fn advance_cycle_count(event: &DomainEvent, conn: &mut PgConnection) -> Ap
 
 /// B4: On `RoyalPotBonusSettled`, upsert per-user cumulative balances from
 /// the `distributions` array the pot bonus module adds to the event payload.
-/// Events without the array (older shape) are skipped. Each entry is a
-/// cumulative upsert — totals accumulate across distributions.
 async fn project_pot_bonus_balances(event: &DomainEvent, conn: &mut PgConnection) -> AppResult<()> {
-    let Some(company_id) = event.company_id else {
-        warn!("RoyalPotBonusSettled: missing company_id, skipping balance projection");
-        return Ok(());
-    };
     let Some(distributions) = event
         .payload
         .get("distributions")
         .and_then(|v| v.as_array())
     else {
-        // Back-compat: older events (or the empty trigger payload from
-        // run_royal_pot_distribution) carry no per-user breakdown.
         return Ok(());
     };
     if distributions.is_empty() {
@@ -515,25 +452,22 @@ async fn project_pot_bonus_balances(event: &DomainEvent, conn: &mut PgConnection
             warn!("RoyalPotBonusSettled: distribution entry missing user_id, skipping entry");
             continue;
         };
-        // Amounts are exact Decimals carried as strings (Task 11); columns are
-        // NUMERIC, so no truncation. Clamp negatives to zero defensively.
-        let profit_share = decimal_field(dist, "profit_share").max(rust_decimal::Decimal::ZERO);
-        let top_cycler = decimal_field(dist, "top_cycler").max(rust_decimal::Decimal::ZERO);
+        let profit_share = i64_field(dist, "profit_share").unwrap_or(0).max(0);
+        let top_cycler = i64_field(dist, "top_cycler").unwrap_or(0).max(0);
         let total = profit_share + top_cycler;
 
         sqlx::query(
             r#"INSERT INTO royal_pot_bonus_balances
-               (company_id, user_id, total_earned, profit_share_earned,
+               (user_id, total_earned, profit_share_earned,
                 top_cycler_earned, distributions_count, last_distribution_at)
-               VALUES ($1, $2, $3, $4, $5, 1, NOW())
-               ON CONFLICT (company_id, user_id) DO UPDATE SET
+               VALUES ($1, $2, $3, $4, 1, NOW())
+               ON CONFLICT (user_id) DO UPDATE SET
                  total_earned        = royal_pot_bonus_balances.total_earned        + EXCLUDED.total_earned,
                  profit_share_earned = royal_pot_bonus_balances.profit_share_earned + EXCLUDED.profit_share_earned,
                  top_cycler_earned   = royal_pot_bonus_balances.top_cycler_earned   + EXCLUDED.top_cycler_earned,
                  distributions_count = royal_pot_bonus_balances.distributions_count + 1,
                  last_distribution_at = NOW()"#,
         )
-        .bind(company_id)
         .bind(user_id)
         .bind(total)
         .bind(profit_share)

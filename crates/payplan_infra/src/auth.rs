@@ -116,7 +116,6 @@ impl JwtService {
     fn build_claims(
         &self,
         sub: uuid::Uuid,
-        company_id: Option<uuid::Uuid>,
         role: &str,
         kind: TokenKind,
         ttl_secs: i64,
@@ -124,7 +123,6 @@ impl JwtService {
         let now = Utc::now().timestamp();
         TokenClaims {
             sub,
-            company_id,
             role: role.to_string(),
             jti: uuid::Uuid::now_v7().to_string(),
             kind,
@@ -141,19 +139,17 @@ impl TokenService for JwtService {
     async fn issue_access(
         &self,
         sub: uuid::Uuid,
-        company_id: Option<uuid::Uuid>,
         role: &str,
     ) -> AppResult<TokenClaims> {
-        Ok(self.build_claims(sub, company_id, role, TokenKind::Access, ACCESS_TTL_SECS))
+        Ok(self.build_claims(sub, role, TokenKind::Access, ACCESS_TTL_SECS))
     }
 
     async fn issue_refresh(
         &self,
         sub: uuid::Uuid,
-        company_id: Option<uuid::Uuid>,
         role: &str,
     ) -> AppResult<TokenClaims> {
-        Ok(self.build_claims(sub, company_id, role, TokenKind::Refresh, REFRESH_TTL_SECS))
+        Ok(self.build_claims(sub, role, TokenKind::Refresh, REFRESH_TTL_SECS))
     }
 
     async fn encode(&self, claims: &TokenClaims) -> AppResult<String> {
@@ -239,7 +235,7 @@ mod jwt_tests {
     async fn access_token_round_trips() {
         let s = svc();
         let claims = s
-            .issue_access(uuid::Uuid::now_v7(), None, "user")
+            .issue_access(uuid::Uuid::now_v7(), "user")
             .await
             .unwrap();
         let token = s.encode(&claims).await.unwrap();
@@ -252,7 +248,7 @@ mod jwt_tests {
     async fn wrong_kind_is_rejected() {
         let s = svc();
         let refresh = s
-            .issue_refresh(uuid::Uuid::now_v7(), None, "user")
+            .issue_refresh(uuid::Uuid::now_v7(), "user")
             .await
             .unwrap();
         let token = s.encode(&refresh).await.unwrap();
@@ -264,7 +260,7 @@ mod jwt_tests {
     async fn expired_token_is_rejected() {
         let s = svc();
         let mut claims = s
-            .issue_access(uuid::Uuid::now_v7(), None, "user")
+            .issue_access(uuid::Uuid::now_v7(), "user")
             .await
             .unwrap();
         // Backdate expiry to the past.
@@ -278,7 +274,7 @@ mod jwt_tests {
         let signer = JwtService::new("secret-a");
         let verifier = JwtService::new("secret-b");
         let claims = signer
-            .issue_access(uuid::Uuid::now_v7(), None, "user")
+            .issue_access(uuid::Uuid::now_v7(), "user")
             .await
             .unwrap();
         let token = signer.encode(&claims).await.unwrap();

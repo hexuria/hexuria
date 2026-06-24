@@ -14,7 +14,7 @@
 
 use chrono::{DateTime, Duration, Utc};
 use payplan_app::ports::{RevokedJtiStore, TokenKind};
-use payplan_core::shared::ids::{CompanyId, UserId};
+use payplan_core::shared::ids::UserId;
 use payplan_infra::auth::PgRevokedJtiStore;
 use payplan_infra::migrator;
 use payplan_infra::postgres::{connect, PgConfig};
@@ -30,41 +30,32 @@ async fn pool() -> PgPool {
 /// Truncate every table touched by these tests, including `revoked_jti` and
 /// its FK targets (`users`, `companies`). CASCADE ensures dependent rows go.
 async fn truncate_all(pool: &PgPool) {
-    sqlx::query("TRUNCATE TABLE revoked_jti, users, companies RESTART IDENTITY CASCADE")
+    sqlx::query("TRUNCATE TABLE revoked_jti, users RESTART IDENTITY CASCADE")
         .execute(pool)
         .await
         .unwrap();
 }
 
-/// Seed a company + user so `revoked_jti.user_id` has a valid FK target.
+/// Seed a user so `revoked_jti.user_id` has a valid FK target.
 /// Returns the new user id.
-async fn seed_user(pool: &PgPool) -> (CompanyId, UserId) {
-    let company_id = CompanyId::new();
+async fn seed_user(pool: &PgPool) -> UserId {
     let user_id = UserId::new();
-    let slug = format!("auth-{}", uuid::Uuid::now_v7().simple());
-    sqlx::query("INSERT INTO companies (id, name, slug) VALUES ($1, 'T', $2)")
-        .bind(company_id)
-        .bind(&slug)
-        .execute(pool)
-        .await
-        .unwrap();
     sqlx::query(
-        "INSERT INTO users (id, email, password_hash, role, company_id) VALUES ($1, $2, 'ph', 'user', $3)",
+        "INSERT INTO users (id, email, password_hash, role) VALUES ($1, $2, 'ph', 'user')",
     )
     .bind(user_id)
     .bind(format!("u-{}@t.local", uuid::Uuid::now_v7().simple()))
-    .bind(company_id)
     .execute(pool)
     .await
     .unwrap();
-    (company_id, user_id)
+    user_id
 }
 
 #[tokio::test]
 async fn revoked_jti_round_trip() {
     let pool = pool().await;
     truncate_all(&pool).await;
-    let (_company_id, user_id) = seed_user(&pool).await;
+    let user_id = seed_user(&pool).await;
     let store = PgRevokedJtiStore::new(pool.clone());
 
     let jti = uuid::Uuid::now_v7().to_string();
@@ -133,7 +124,7 @@ async fn revoked_jti_round_trip() {
 async fn revoked_jti_stores_refresh_kind() {
     let pool = pool().await;
     truncate_all(&pool).await;
-    let (_company_id, user_id) = seed_user(&pool).await;
+    let user_id = seed_user(&pool).await;
     let store = PgRevokedJtiStore::new(pool.clone());
 
     let jti = uuid::Uuid::now_v7().to_string();
@@ -167,7 +158,7 @@ async fn revoked_jti_persists_expires_at() {
     // (purge jobs rely on this to garbage-collect rows past natural expiry).
     let pool = pool().await;
     truncate_all(&pool).await;
-    let (_company_id, user_id) = seed_user(&pool).await;
+    let user_id = seed_user(&pool).await;
     let store = PgRevokedJtiStore::new(pool.clone());
 
     let jti = uuid::Uuid::now_v7().to_string();

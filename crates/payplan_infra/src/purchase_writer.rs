@@ -7,7 +7,7 @@
 
 use async_trait::async_trait;
 use payplan_app::error::{AppError, AppResult};
-use payplan_app::ports::{PurchaseWriter, PurchaseWrites};
+use payplan_app::ports::{PurchaseWrites, PurchaseWriter};
 use sqlx::PgPool;
 use tracing::info;
 
@@ -34,11 +34,10 @@ impl PurchaseWriter for PgPurchaseWriter {
         // Subscriptions.
         for sub in writes.subscriptions {
             sqlx::query(
-                r#"INSERT INTO subscriptions (id, company_id, user_id, package_id, billing_plan_id, status, current_period_start, current_period_end, cancelled_at, created_at)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
+                r#"INSERT INTO subscriptions (id, user_id, package_id, billing_plan_id, status, current_period_start, current_period_end, cancelled_at, created_at)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
             )
             .bind(sub.id)
-            .bind(sub.company_id)
             .bind(sub.user_id)
             .bind(sub.package_id)
             .bind(sub.billing_plan_id)
@@ -55,11 +54,10 @@ impl PurchaseWriter for PgPurchaseWriter {
         // Entitlements.
         for ent in writes.entitlements {
             sqlx::query(
-                r#"INSERT INTO entitlements (id, company_id, user_id, package_id, catalog_item_id, source_purchase_id, source_subscription_id, status, starts_at, ends_at, revoked_at)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#,
+                r#"INSERT INTO entitlements (id, user_id, package_id, catalog_item_id, source_purchase_id, source_subscription_id, status, starts_at, ends_at, revoked_at)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
             )
             .bind(ent.id)
-            .bind(ent.company_id)
             .bind(ent.user_id)
             .bind(ent.package_id)
             .bind(ent.catalog_item_id)
@@ -76,11 +74,10 @@ impl PurchaseWriter for PgPurchaseWriter {
 
         // Purchase.
         sqlx::query(
-            r#"INSERT INTO purchases (id, company_id, user_id, package_id, sponsor_user_id, gross_amount, net_amount, currency, status, purchased_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
+            r#"INSERT INTO purchases (id, user_id, package_id, sponsor_user_id, gross_amount, net_amount, currency, status, purchased_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
         )
         .bind(writes.purchase.id)
-        .bind(writes.purchase.company_id)
         .bind(writes.purchase.user_id)
         .bind(writes.purchase.package_id)
         .bind(writes.purchase.sponsor_user_id)
@@ -95,11 +92,10 @@ impl PurchaseWriter for PgPurchaseWriter {
 
         // Enrollment.
         sqlx::query(
-            r#"INSERT INTO enrollments (id, company_id, user_id, package_id, purchase_id, sponsor_user_id, status, joined_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
+            r#"INSERT INTO enrollments (id, user_id, package_id, purchase_id, sponsor_user_id, status, joined_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
         )
         .bind(writes.enrollment.id)
-        .bind(writes.enrollment.company_id)
         .bind(writes.enrollment.user_id)
         .bind(writes.enrollment.package_id)
         .bind(writes.enrollment.purchase_id)
@@ -115,11 +111,10 @@ impl PurchaseWriter for PgPurchaseWriter {
             let aggregate_type = aggregate_type_for(ev.event_type);
             let aggregate_id = aggregate_id_for(ev);
             sqlx::query(
-                r#"INSERT INTO event_log (id, company_id, event_type, aggregate_type, aggregate_id, payload, created_at)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
+                r#"INSERT INTO event_log (id, event_type, aggregate_type, aggregate_id, payload, created_at)
+                   VALUES ($1, $2, $3, $4, $5, $6)"#,
             )
             .bind(ev.id)
-            .bind(ev.company_id)
             .bind(ev.event_type.as_str())
             .bind(aggregate_type)
             .bind(aggregate_id)
@@ -133,19 +128,16 @@ impl PurchaseWriter for PgPurchaseWriter {
         // Ledger.
         for entry in writes.ledger {
             sqlx::query(
-                r#"INSERT INTO reward_ledger (id, company_id, user_id, enrollment_id, package_id, source_module, source_event_id, amount, points, currency, status, reason, created_at)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)"#,
+                r#"INSERT INTO reward_ledger (id, user_id, enrollment_id, package_id, source_module, source_event_id, points, status, reason, created_at)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
             )
             .bind(entry.id)
-            .bind(entry.company_id)
             .bind(entry.user_id)
             .bind(entry.enrollment_id)
             .bind(entry.package_id)
             .bind(&entry.source_module)
             .bind(entry.source_event_id)
-            .bind(entry.amount.amount)
             .bind(entry.points)
-            .bind(&entry.amount.currency)
             .bind(ledger_status_str(entry.status))
             .bind(&entry.reason)
             .bind(entry.created_at)
@@ -171,13 +163,13 @@ impl PurchaseWriter for PgPurchaseWriter {
             .map_err(|e| AppError::Infra(format!("upsert module_state: {e}")))?;
         }
 
-        // Per-module projections (Track A2-A5).
+        // Per-module projections.
         if let Some(projector) = writes.projector {
             projector
                 .project(writes.module_state_changes, &mut tx)
                 .await?;
         }
-        // Event-driven projections (Track B1/B2): materialise rows that can't
+        // Event-driven projections: materialise rows that can't
         // be derived from module state (new enrollments, pairing results, ...).
         if let Some(event_projector) = writes.event_projector {
             event_projector.project(writes.events, &mut tx).await?;
@@ -259,7 +251,6 @@ fn ledger_status_str(s: payplan_core::payplan::ledger::LedgerStatus) -> &'static
 fn aggregate_type_for(event_type: payplan_core::payplan::events::EventType) -> &'static str {
     use payplan_core::payplan::events::EventType as E;
     match event_type {
-        E::CompanyCreated => "company",
         E::UserCreated => "user",
         E::CatalogItemCreated => "catalog_item",
         E::BillingPlanCreated => "billing_plan",

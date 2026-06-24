@@ -3,7 +3,7 @@ use payplan_app::queries::DashboardView;
 use payplan_web::AppContext;
 
 use crate::{
-    app::{current_user, scope},
+    app::current_user,
     components::{LoadError, Loading, LoginRequired, PageFrame, PurchaseTable},
 };
 
@@ -14,14 +14,13 @@ pub(crate) fn DashboardPage() -> impl IntoView {
     };
     let context = expect_context::<AppContext>();
     let query = context.admin_queries.clone();
-    let tenant = scope(&auth);
     let data = Resource::new_blocking(
         || (),
         move |_| {
             let query = query.clone();
             async move {
                 query
-                    .dashboard(tenant)
+                    .dashboard()
                     .await
                     .map_err(|_| "dashboard query failed".to_string())
             }
@@ -47,7 +46,6 @@ pub(crate) fn DashboardPage() -> impl IntoView {
 fn DashboardContent(data: DashboardView) -> impl IntoView {
     view! {
         <section class="stat-grid">
-            <StatCard label="Companies" value=data.company_count/>
             <StatCard label="Users" value=data.user_count/>
             <StatCard label="Packages" value=data.package_count/>
             <StatCard label="Purchases" value=data.purchase_count/>

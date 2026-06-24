@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use payplan_app::commands::default_module_registry;
 use payplan_app::ports::{
-    CatalogRepo, CompanyRepo, EnrollmentRepo, EntitlementRepo, EventProjector, EventStore,
+    AllocationRepo, CatalogRepo, EnrollmentRepo, EntitlementRepo, EventProjector, EventStore,
     ModuleProjector, ModuleStateStore, PackageRepo, PasswordPort, PayPlanStackRepo, PurchaseRepo,
     PurchaseWriter, RevokedJtiStore, RewardLedgerStore, SubscriptionRepo, TokenService, UserRepo,
 };
@@ -19,7 +19,7 @@ use payplan_infra::ledger_store::PgLedgerStore;
 use payplan_infra::module_state_store::PgModuleStateStore;
 use payplan_infra::projections::{PgEventProjector, PgProjections};
 use payplan_infra::purchase_writer::PgPurchaseWriter;
-use payplan_infra::repos::{PgCompanyRepo, PgUserRepo};
+use payplan_infra::repos::{PgAllocationRepo, PgUserRepo};
 use sqlx::PgPool;
 use tracing::info;
 
@@ -29,7 +29,7 @@ pub struct AppContext {
     pub pool: PgPool,
     pub registry: Arc<ModuleRegistry>,
     pub passwords: Arc<dyn PasswordPort>,
-    pub companies: Arc<dyn CompanyRepo>,
+    pub allocations: Arc<dyn AllocationRepo>,
     pub users: Arc<dyn UserRepo>,
     pub catalog: Arc<dyn CatalogRepo>,
     pub packages: Arc<dyn PackageRepo>,
@@ -57,7 +57,7 @@ impl AppContext {
     pub fn new(pool: PgPool, jwt_secret: String) -> Self {
         let registry = Arc::new(default_module_registry());
 
-        let companies: Arc<dyn CompanyRepo> = Arc::new(PgCompanyRepo::new());
+        let allocations: Arc<dyn AllocationRepo> = Arc::new(PgAllocationRepo::new());
         let users: Arc<dyn UserRepo> = Arc::new(PgUserRepo::new());
         let catalog: Arc<dyn CatalogRepo> = Arc::new(PgCatalogRepo::new());
         let packages: Arc<dyn PackageRepo> = Arc::new(PgPackageRepo::new());
@@ -86,7 +86,7 @@ impl AppContext {
             pool,
             registry,
             passwords,
-            companies,
+            allocations,
             users,
             catalog,
             packages,

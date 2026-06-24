@@ -1,11 +1,10 @@
-use crate::shared::ids::{CompanyId, PayPlanStackId};
+use crate::shared::ids::PayPlanStackId;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PayPlanStack {
     pub id: PayPlanStackId,
-    pub company_id: CompanyId,
     pub name: String,
     pub version: u32,
     pub status: PayPlanStackStatus,

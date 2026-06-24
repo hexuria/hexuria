@@ -15,7 +15,7 @@ use payplan_core::platform::package::{Package, PackageItem, PackageItemRole, Pac
 use payplan_core::platform::purchase::{Purchase, PurchaseStatus};
 use payplan_core::platform::subscription::{Subscription, SubscriptionStatus};
 use payplan_core::shared::ids::{
-    BillingPlanId, CatalogItemId, CompanyId, EnrollmentId, PackageId, PayPlanStackId, PurchaseId,
+    BillingPlanId, CatalogItemId, EnrollmentId, PackageId, PayPlanStackId, PurchaseId,
     SubscriptionId, UserId,
 };
 use serde_json::Value;
@@ -42,11 +42,10 @@ impl CatalogRepo for PgCatalogRepo {
         };
         let status = catalog_item_status_str(item.status);
         sqlx::query(
-            r#"INSERT INTO catalog_items (id, company_id, name, description, item_type, sku, status, metadata, created_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
+            r#"INSERT INTO catalog_items (id, name, description, item_type, sku, status, metadata, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
         )
         .bind(item.id)
-        .bind(item.company_id)
         .bind(&item.name)
         .bind(&item.description)
         .bind(item_type)
@@ -66,7 +65,7 @@ impl CatalogRepo for PgCatalogRepo {
         conn: &mut PgConnection,
     ) -> AppResult<Option<CatalogItem>> {
         let row = sqlx::query(
-            r#"SELECT id, company_id, name, description, item_type, sku, status, metadata, created_at
+            r#"SELECT id, name, description, item_type, sku, status, metadata, created_at
                FROM catalog_items WHERE id = $1"#,
         )
         .bind(id)
@@ -78,14 +77,12 @@ impl CatalogRepo for PgCatalogRepo {
 
     async fn list_items(
         &self,
-        company_id: CompanyId,
         conn: &mut PgConnection,
     ) -> AppResult<Vec<CatalogItem>> {
         let rows = sqlx::query(
-            r#"SELECT id, company_id, name, description, item_type, sku, status, metadata, created_at
-               FROM catalog_items WHERE company_id = $1 ORDER BY created_at DESC"#,
+            r#"SELECT id, name, description, item_type, sku, status, metadata, created_at
+               FROM catalog_items ORDER BY created_at DESC"#,
         )
-        .bind(company_id)
         .fetch_all(&mut *conn)
         .await
         .map_err(|e| AppError::Infra(e.to_string()))?;
@@ -156,45 +153,19 @@ fn catalog_item_status_str(s: CatalogItemStatus) -> &'static str {
     }
 }
 
-fn parse_recurring(
-    s: String,
-    count: Option<i32>,
-    trial: i32,
-    grace: i32,
-) -> AppResult<RecurringSettings> {
-    let interval = match s.as_str() {
-        "daily" => payplan_core::platform::catalog::RecurrenceInterval::Daily,
-        "weekly" => payplan_core::platform::catalog::RecurrenceInterval::Weekly,
-        "monthly" => payplan_core::platform::catalog::RecurrenceInterval::Monthly,
-        "quarterly" => payplan_core::platform::catalog::RecurrenceInterval::Quarterly,
-        "yearly" => payplan_core::platform::catalog::RecurrenceInterval::Yearly,
-        other => return Err(AppError::Validation(format!("unknown interval: {other}"))),
-    };
-    Ok(RecurringSettings {
-        interval,
-        interval_count: u32::try_from(count.unwrap_or(0)).unwrap_or(0),
-        trial_days: u32::try_from(trial).unwrap_or(0),
-        grace_period_days: u32::try_from(grace).unwrap_or(0),
-    })
-}
-
 fn interval_str(i: payplan_core::platform::catalog::RecurrenceInterval) -> &'static str {
-    use payplan_core::platform::catalog::RecurrenceInterval as R;
     match i {
-        R::Daily => "daily",
-        R::Weekly => "weekly",
-        R::Monthly => "monthly",
-        R::Quarterly => "quarterly",
-        R::Yearly => "yearly",
+        payplan_core::platform::catalog::RecurrenceInterval::Daily => "daily",
+        payplan_core::platform::catalog::RecurrenceInterval::Weekly => "weekly",
+        payplan_core::platform::catalog::RecurrenceInterval::Monthly => "monthly",
+        payplan_core::platform::catalog::RecurrenceInterval::Quarterly => "quarterly",
+        payplan_core::platform::catalog::RecurrenceInterval::Yearly => "yearly",
     }
 }
 
 fn row_to_catalog_item(row: sqlx::postgres::PgRow) -> AppResult<CatalogItem> {
     let id: uuid::Uuid = row
         .try_get("id")
-        .map_err(|e| AppError::Infra(e.to_string()))?;
-    let company_id: uuid::Uuid = row
-        .try_get("company_id")
         .map_err(|e| AppError::Infra(e.to_string()))?;
     let name: String = row
         .try_get("name")
@@ -217,15 +188,19 @@ fn row_to_catalog_item(row: sqlx::postgres::PgRow) -> AppResult<CatalogItem> {
     let created_at: DateTime<Utc> = row
         .try_get("created_at")
         .map_err(|e| AppError::Infra(e.to_string()))?;
+
     Ok(CatalogItem {
         id: CatalogItemId::from(id),
-        company_id: CompanyId::from(company_id),
         name,
         description,
         item_type: match item_type.as_str() {
             "product" => CatalogItemType::Product,
             "service" => CatalogItemType::Service,
-            other => return Err(AppError::Validation(format!("unknown item_type: {other}"))),
+            other => {
+                return Err(AppError::Validation(format!(
+                    "unknown catalog item type: {other}"
+                )))
+            }
         },
         sku,
         status: match status.as_str() {
@@ -234,7 +209,7 @@ fn row_to_catalog_item(row: sqlx::postgres::PgRow) -> AppResult<CatalogItem> {
             "archived" => CatalogItemStatus::Archived,
             other => {
                 return Err(AppError::Validation(format!(
-                    "unknown item status: {other}"
+                    "unknown catalog item status: {other}"
                 )))
             }
         },
@@ -250,7 +225,7 @@ fn row_to_billing_plan(row: sqlx::postgres::PgRow) -> AppResult<BillingPlan> {
     let catalog_item_id: uuid::Uuid = row
         .try_get("catalog_item_id")
         .map_err(|e| AppError::Infra(e.to_string()))?;
-    let billing_type: String = row
+    let billing_type_str: String = row
         .try_get("billing_type")
         .map_err(|e| AppError::Infra(e.to_string()))?;
     let price_amount: rust_decimal::Decimal = row
@@ -262,13 +237,13 @@ fn row_to_billing_plan(row: sqlx::postgres::PgRow) -> AppResult<BillingPlan> {
     let interval: Option<String> = row
         .try_get("recurrence_interval")
         .map_err(|e| AppError::Infra(e.to_string()))?;
-    let interval_count: Option<i32> = row
+    let count: Option<i32> = row
         .try_get("recurrence_count")
         .map_err(|e| AppError::Infra(e.to_string()))?;
-    let trial_days: i32 = row
+    let trial: i32 = row
         .try_get("trial_days")
         .map_err(|e| AppError::Infra(e.to_string()))?;
-    let grace_period_days: i32 = row
+    let grace: i32 = row
         .try_get("grace_period_days")
         .map_err(|e| AppError::Infra(e.to_string()))?;
     let active: bool = row
@@ -277,24 +252,45 @@ fn row_to_billing_plan(row: sqlx::postgres::PgRow) -> AppResult<BillingPlan> {
     let created_at: DateTime<Utc> = row
         .try_get("created_at")
         .map_err(|e| AppError::Infra(e.to_string()))?;
-    let billing_type = match billing_type.as_str() {
+
+    let billing_type = match billing_type_str.as_str() {
         "one_time" => BillingType::OneTime,
         "recurring" => BillingType::Recurring,
         other => {
             return Err(AppError::Validation(format!(
-                "unknown billing_type: {other}"
+                "unknown billing type: {other}"
             )))
         }
     };
-    let recurring = match interval {
-        Some(s) => Some(parse_recurring(
-            s,
-            interval_count,
-            trial_days,
-            grace_period_days,
-        )?),
-        None => None,
+
+    let recurring = if matches!(billing_type, BillingType::Recurring) {
+        let interval_enum = match interval.as_deref() {
+            Some("daily") => payplan_core::platform::catalog::RecurrenceInterval::Daily,
+            Some("weekly") => payplan_core::platform::catalog::RecurrenceInterval::Weekly,
+            Some("monthly") => payplan_core::platform::catalog::RecurrenceInterval::Monthly,
+            Some("quarterly") => payplan_core::platform::catalog::RecurrenceInterval::Quarterly,
+            Some("yearly") => payplan_core::platform::catalog::RecurrenceInterval::Yearly,
+            Some(other) => {
+                return Err(AppError::Validation(format!(
+                    "unknown recurrence interval: {other}"
+                )))
+            }
+            None => {
+                return Err(AppError::Validation(
+                    "missing recurrence interval for recurring plan".into(),
+                ))
+            }
+        };
+        Some(RecurringSettings {
+            interval: interval_enum,
+            interval_count: u32::try_from(count.unwrap_or(1)).unwrap_or(1),
+            trial_days: u32::try_from(trial).unwrap_or(0),
+            grace_period_days: u32::try_from(grace).unwrap_or(0),
+        })
+    } else {
+        None
     };
+
     Ok(BillingPlan {
         id: BillingPlanId::from(id),
         catalog_item_id: CatalogItemId::from(catalog_item_id),
@@ -322,12 +318,10 @@ impl PgPackageRepo {
 impl PackageRepo for PgPackageRepo {
     async fn insert(&self, package: &Package, conn: &mut PgConnection) -> AppResult<()> {
         sqlx::query(
-            r#"INSERT INTO packages (id, company_id, pay_plan_stack_id, name, description, status, metadata, created_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
+            r#"INSERT INTO packages (id, name, description, status, metadata, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6)"#,
         )
         .bind(package.id)
-        .bind(package.company_id)
-        .bind(package.pay_plan_stack_id)
         .bind(&package.name)
         .bind(&package.description)
         .bind(package_status_str(package.status))
@@ -339,8 +333,8 @@ impl PackageRepo for PgPackageRepo {
 
         for item in &package.items {
             sqlx::query(
-                r#"INSERT INTO package_items (id, package_id, catalog_item_id, billing_plan_id, quantity, item_role, is_commissionable, commissionable_volume, points_value)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
+                r#"INSERT INTO package_items (id, package_id, catalog_item_id, billing_plan_id, quantity, item_role, is_commissionable)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
             )
             .bind(uuid::Uuid::now_v7())
             .bind(package.id)
@@ -349,8 +343,6 @@ impl PackageRepo for PgPackageRepo {
             .bind(i32::try_from(item.quantity).unwrap_or(i32::MAX))
             .bind(package_item_role_str(item.role))
             .bind(item.is_commissionable)
-            .bind(i32::try_from(item.commissionable_volume).unwrap_or(i32::MAX))
-            .bind(i32::try_from(item.points_value).unwrap_or(i32::MAX))
             .execute(&mut *conn)
             .await
             .map_err(|e| AppError::Infra(e.to_string()))?;
@@ -361,7 +353,7 @@ impl PackageRepo for PgPackageRepo {
 
     async fn get(&self, id: PackageId, conn: &mut PgConnection) -> AppResult<Option<Package>> {
         let row = sqlx::query(
-            r#"SELECT id, company_id, pay_plan_stack_id, name, description, status, metadata, created_at
+            r#"SELECT id, name, description, status, metadata, created_at
                FROM packages WHERE id = $1"#,
         )
         .bind(id)
@@ -373,7 +365,7 @@ impl PackageRepo for PgPackageRepo {
         };
         let package = row_to_package(row)?;
         let items = sqlx::query(
-            r#"SELECT catalog_item_id, billing_plan_id, quantity, item_role, is_commissionable, commissionable_volume, points_value
+            r#"SELECT catalog_item_id, billing_plan_id, quantity, item_role, is_commissionable
                FROM package_items WHERE package_id = $1"#,
         )
         .bind(id)
@@ -389,14 +381,12 @@ impl PackageRepo for PgPackageRepo {
 
     async fn list(
         &self,
-        company_id: CompanyId,
         conn: &mut PgConnection,
     ) -> AppResult<Vec<Package>> {
         let rows = sqlx::query(
-            r#"SELECT id, company_id, pay_plan_stack_id, name, description, status, metadata, created_at
-               FROM packages WHERE company_id = $1 ORDER BY created_at DESC"#,
+            r#"SELECT id, name, description, status, metadata, created_at
+               FROM packages ORDER BY created_at DESC"#,
         )
-        .bind(company_id)
         .fetch_all(&mut *conn)
         .await
         .map_err(|e| AppError::Infra(e.to_string()))?;
@@ -426,12 +416,6 @@ fn row_to_package(row: sqlx::postgres::PgRow) -> AppResult<Package> {
     let id: uuid::Uuid = row
         .try_get("id")
         .map_err(|e| AppError::Infra(e.to_string()))?;
-    let company_id: uuid::Uuid = row
-        .try_get("company_id")
-        .map_err(|e| AppError::Infra(e.to_string()))?;
-    let pay_plan_stack_id: Option<uuid::Uuid> = row
-        .try_get("pay_plan_stack_id")
-        .map_err(|e| AppError::Infra(e.to_string()))?;
     let name: String = row
         .try_get("name")
         .map_err(|e| AppError::Infra(e.to_string()))?;
@@ -449,7 +433,6 @@ fn row_to_package(row: sqlx::postgres::PgRow) -> AppResult<Package> {
         .map_err(|e| AppError::Infra(e.to_string()))?;
     Ok(Package {
         id: PackageId::from(id),
-        company_id: CompanyId::from(company_id),
         name,
         description,
         status: match status.as_str() {
@@ -463,8 +446,7 @@ fn row_to_package(row: sqlx::postgres::PgRow) -> AppResult<Package> {
                 )))
             }
         },
-        pay_plan_stack_id: pay_plan_stack_id.map(PayPlanStackId::from),
-        default_billing_plan_id: None, // not stored in current schema; rebuilt on read
+        default_billing_plan_id: None,
         metadata,
         created_at,
         items: vec![],
@@ -487,12 +469,6 @@ fn row_to_package_item(row: sqlx::postgres::PgRow) -> AppResult<PackageItem> {
     let is_commissionable: bool = row
         .try_get("is_commissionable")
         .map_err(|e| AppError::Infra(e.to_string()))?;
-    let commissionable_volume: i32 = row
-        .try_get("commissionable_volume")
-        .map_err(|e| AppError::Infra(e.to_string()))?;
-    let points_value: i32 = row
-        .try_get("points_value")
-        .map_err(|e| AppError::Infra(e.to_string()))?;
     Ok(PackageItem {
         catalog_item_id: CatalogItemId::from(catalog_item_id),
         billing_plan_id: BillingPlanId::from(billing_plan_id),
@@ -505,8 +481,6 @@ fn row_to_package_item(row: sqlx::postgres::PgRow) -> AppResult<PackageItem> {
             other => return Err(AppError::Validation(format!("unknown item_role: {other}"))),
         },
         is_commissionable,
-        commissionable_volume: u32::try_from(commissionable_volume).unwrap_or(0),
-        points_value: u32::try_from(points_value).unwrap_or(0),
     })
 }
 
@@ -526,11 +500,10 @@ impl PgPayPlanStackRepo {
 impl PayPlanStackRepo for PgPayPlanStackRepo {
     async fn insert(&self, stack: &PayPlanStack, conn: &mut PgConnection) -> AppResult<()> {
         sqlx::query(
-            r#"INSERT INTO pay_plan_stacks (id, company_id, name, version, status, created_at)
-               VALUES ($1, $2, $3, $4, $5, $6)"#,
+            r#"INSERT INTO pay_plan_stacks (id, name, version, status, created_at)
+               VALUES ($1, $2, $3, $4, $5)"#,
         )
         .bind(stack.id)
-        .bind(stack.company_id)
         .bind(&stack.name)
         .bind(i32::try_from(stack.version).unwrap_or(i32::MAX))
         .bind(stack_status_str(stack.status))
@@ -564,7 +537,7 @@ impl PayPlanStackRepo for PgPayPlanStackRepo {
         conn: &mut PgConnection,
     ) -> AppResult<Option<PayPlanStack>> {
         let row = sqlx::query(
-            r#"SELECT id, company_id, name, version, status, created_at
+            r#"SELECT id, name, version, status, created_at
                FROM pay_plan_stacks WHERE id = $1"#,
         )
         .bind(id)
@@ -592,15 +565,13 @@ impl PayPlanStackRepo for PgPayPlanStackRepo {
 
     async fn next_version(
         &self,
-        company_id: CompanyId,
         name: &str,
         conn: &mut PgConnection,
     ) -> AppResult<u32> {
         let row = sqlx::query(
             r#"SELECT COALESCE(MAX(version), 0) AS max_version
-               FROM pay_plan_stacks WHERE company_id = $1 AND name = $2"#,
+               FROM pay_plan_stacks WHERE name = $1"#,
         )
-        .bind(company_id)
         .bind(name)
         .fetch_one(&mut *conn)
         .await
@@ -624,9 +595,6 @@ fn row_to_stack(row: sqlx::postgres::PgRow) -> AppResult<PayPlanStack> {
     let id: uuid::Uuid = row
         .try_get("id")
         .map_err(|e| AppError::Infra(e.to_string()))?;
-    let company_id: uuid::Uuid = row
-        .try_get("company_id")
-        .map_err(|e| AppError::Infra(e.to_string()))?;
     let name: String = row
         .try_get("name")
         .map_err(|e| AppError::Infra(e.to_string()))?;
@@ -641,18 +609,13 @@ fn row_to_stack(row: sqlx::postgres::PgRow) -> AppResult<PayPlanStack> {
         .map_err(|e| AppError::Infra(e.to_string()))?;
     Ok(PayPlanStack {
         id: PayPlanStackId::from(id),
-        company_id: CompanyId::from(company_id),
         name,
         version: u32::try_from(version).unwrap_or(0),
         status: match status.as_str() {
             "draft" => PayPlanStackStatus::Draft,
             "active" => PayPlanStackStatus::Active,
             "archived" => PayPlanStackStatus::Archived,
-            other => {
-                return Err(AppError::Validation(format!(
-                    "unknown stack status: {other}"
-                )))
-            }
+            other => return Err(AppError::Validation(format!("unknown stack status: {other}"))),
         },
         modules: vec![],
         created_at,
@@ -684,7 +647,7 @@ fn row_to_stack_module(row: sqlx::postgres::PgRow) -> AppResult<StackModule> {
     })
 }
 
-// ------------------------------ Purchase ------------------------------------
+// ------------------------------- Purchase ------------------------------------
 
 #[derive(Default)]
 pub struct PgPurchaseRepo {}
@@ -707,11 +670,10 @@ impl PurchaseRepo for PgPurchaseRepo {
             PurchaseStatus::Cancelled => "cancelled",
         };
         sqlx::query(
-            r#"INSERT INTO purchases (id, company_id, user_id, package_id, sponsor_user_id, gross_amount, net_amount, currency, status, purchased_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
+            r#"INSERT INTO purchases (id, user_id, package_id, sponsor_user_id, gross_amount, net_amount, currency, status, purchased_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
         )
         .bind(purchase.id)
-        .bind(purchase.company_id)
         .bind(purchase.user_id)
         .bind(purchase.package_id)
         .bind(purchase.sponsor_user_id)
@@ -728,7 +690,7 @@ impl PurchaseRepo for PgPurchaseRepo {
 
     async fn get(&self, id: PurchaseId, conn: &mut PgConnection) -> AppResult<Option<Purchase>> {
         let row = sqlx::query(
-            r#"SELECT id, company_id, user_id, package_id, sponsor_user_id, gross_amount, net_amount, currency, status, purchased_at
+            r#"SELECT id, user_id, package_id, sponsor_user_id, gross_amount, net_amount, currency, status, purchased_at
                FROM purchases WHERE id = $1"#,
         )
         .bind(id)
@@ -742,9 +704,6 @@ impl PurchaseRepo for PgPurchaseRepo {
 fn row_to_purchase(row: sqlx::postgres::PgRow) -> AppResult<Purchase> {
     let id: uuid::Uuid = row
         .try_get("id")
-        .map_err(|e| AppError::Infra(e.to_string()))?;
-    let company_id: uuid::Uuid = row
-        .try_get("company_id")
         .map_err(|e| AppError::Infra(e.to_string()))?;
     let user_id: uuid::Uuid = row
         .try_get("user_id")
@@ -772,7 +731,6 @@ fn row_to_purchase(row: sqlx::postgres::PgRow) -> AppResult<Purchase> {
         .map_err(|e| AppError::Infra(e.to_string()))?;
     Ok(Purchase {
         id: PurchaseId::from(id),
-        company_id: CompanyId::from(company_id),
         user_id: UserId::from(user_id),
         package_id: PackageId::from(package_id),
         sponsor_user_id: sponsor_user_id.map(UserId::from),
@@ -821,11 +779,10 @@ impl SubscriptionRepo for PgSubscriptionRepo {
             .as_ref()
             .map_or((None, None), |p| (Some(p.starts_at), p.ends_at));
         sqlx::query(
-            r#"INSERT INTO subscriptions (id, company_id, user_id, package_id, billing_plan_id, status, current_period_start, current_period_end, cancelled_at, created_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
+            r#"INSERT INTO subscriptions (id, user_id, package_id, billing_plan_id, status, current_period_start, current_period_end, cancelled_at, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
         )
         .bind(sub.id)
-        .bind(sub.company_id)
         .bind(sub.user_id)
         .bind(sub.package_id)
         .bind(sub.billing_plan_id)
@@ -846,7 +803,7 @@ impl SubscriptionRepo for PgSubscriptionRepo {
         conn: &mut PgConnection,
     ) -> AppResult<Option<Subscription>> {
         let row = sqlx::query(
-            r#"SELECT id, company_id, user_id, package_id, billing_plan_id, status, current_period_start, current_period_end, cancelled_at, created_at
+            r#"SELECT id, user_id, package_id, billing_plan_id, status, current_period_start, current_period_end, cancelled_at, created_at
                FROM subscriptions WHERE id = $1"#,
         )
         .bind(id)
@@ -862,7 +819,7 @@ impl SubscriptionRepo for PgSubscriptionRepo {
         conn: &mut PgConnection,
     ) -> AppResult<Vec<Subscription>> {
         let rows = sqlx::query(
-            r#"SELECT id, company_id, user_id, package_id, billing_plan_id, status, current_period_start, current_period_end, cancelled_at, created_at
+            r#"SELECT id, user_id, package_id, billing_plan_id, status, current_period_start, current_period_end, cancelled_at, created_at
                FROM subscriptions WHERE user_id = $1 AND status = 'active'"#,
         )
         .bind(user_id)
@@ -876,9 +833,6 @@ impl SubscriptionRepo for PgSubscriptionRepo {
 fn row_to_subscription(row: sqlx::postgres::PgRow) -> AppResult<Subscription> {
     let id: uuid::Uuid = row
         .try_get("id")
-        .map_err(|e| AppError::Infra(e.to_string()))?;
-    let company_id: uuid::Uuid = row
-        .try_get("company_id")
         .map_err(|e| AppError::Infra(e.to_string()))?;
     let user_id: uuid::Uuid = row
         .try_get("user_id")
@@ -906,7 +860,6 @@ fn row_to_subscription(row: sqlx::postgres::PgRow) -> AppResult<Subscription> {
         .map_err(|e| AppError::Infra(e.to_string()))?;
     Ok(Subscription {
         id: SubscriptionId::from(id),
-        company_id: CompanyId::from(company_id),
         user_id: UserId::from(user_id),
         package_id: PackageId::from(package_id),
         billing_plan_id: BillingPlanId::from(billing_plan_id),
@@ -949,11 +902,10 @@ impl EntitlementRepo for PgEntitlementRepo {
             EntitlementStatus::Revoked => "revoked",
         };
         sqlx::query(
-            r#"INSERT INTO entitlements (id, company_id, user_id, package_id, catalog_item_id, source_purchase_id, source_subscription_id, status, starts_at, ends_at, revoked_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#,
+            r#"INSERT INTO entitlements (id, user_id, package_id, catalog_item_id, source_purchase_id, source_subscription_id, status, starts_at, ends_at, revoked_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
         )
         .bind(ent.id)
-        .bind(ent.company_id)
         .bind(ent.user_id)
         .bind(ent.package_id)
         .bind(ent.catalog_item_id)
@@ -975,7 +927,7 @@ impl EntitlementRepo for PgEntitlementRepo {
         conn: &mut PgConnection,
     ) -> AppResult<Vec<Entitlement>> {
         let rows = sqlx::query(
-            r#"SELECT id, company_id, user_id, package_id, catalog_item_id, source_purchase_id, source_subscription_id, status, starts_at, ends_at, revoked_at
+            r#"SELECT id, user_id, package_id, catalog_item_id, source_purchase_id, source_subscription_id, status, starts_at, ends_at, revoked_at
                FROM entitlements WHERE user_id = $1 ORDER BY starts_at DESC"#,
         )
         .bind(user_id)
@@ -989,9 +941,6 @@ impl EntitlementRepo for PgEntitlementRepo {
 fn row_to_entitlement(row: sqlx::postgres::PgRow) -> AppResult<Entitlement> {
     let id: uuid::Uuid = row
         .try_get("id")
-        .map_err(|e| AppError::Infra(e.to_string()))?;
-    let company_id: uuid::Uuid = row
-        .try_get("company_id")
         .map_err(|e| AppError::Infra(e.to_string()))?;
     let user_id: uuid::Uuid = row
         .try_get("user_id")
@@ -1022,7 +971,6 @@ fn row_to_entitlement(row: sqlx::postgres::PgRow) -> AppResult<Entitlement> {
         .map_err(|e| AppError::Infra(e.to_string()))?;
     Ok(Entitlement {
         id: payplan_core::shared::ids::EntitlementId::from(id),
-        company_id: CompanyId::from(company_id),
         user_id: UserId::from(user_id),
         package_id: PackageId::from(package_id),
         catalog_item_id: CatalogItemId::from(catalog_item_id),
@@ -1067,11 +1015,10 @@ impl EnrollmentRepo for PgEnrollmentRepo {
             EnrollmentStatus::Expired => "expired",
         };
         sqlx::query(
-            r#"INSERT INTO enrollments (id, company_id, user_id, package_id, purchase_id, sponsor_user_id, status, joined_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
+            r#"INSERT INTO enrollments (id, user_id, package_id, purchase_id, sponsor_user_id, status, joined_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
         )
         .bind(enrollment.id)
-        .bind(enrollment.company_id)
         .bind(enrollment.user_id)
         .bind(enrollment.package_id)
         .bind(enrollment.purchase_id)
@@ -1090,7 +1037,7 @@ impl EnrollmentRepo for PgEnrollmentRepo {
         conn: &mut PgConnection,
     ) -> AppResult<Option<Enrollment>> {
         let row = sqlx::query(
-            r#"SELECT id, company_id, user_id, package_id, purchase_id, sponsor_user_id, status, joined_at
+            r#"SELECT id, user_id, package_id, purchase_id, sponsor_user_id, status, joined_at
                FROM enrollments WHERE id = $1"#,
         )
         .bind(id)
@@ -1106,7 +1053,7 @@ impl EnrollmentRepo for PgEnrollmentRepo {
         conn: &mut PgConnection,
     ) -> AppResult<Vec<Enrollment>> {
         let rows = sqlx::query(
-            r#"SELECT id, company_id, user_id, package_id, purchase_id, sponsor_user_id, status, joined_at
+            r#"SELECT id, user_id, package_id, purchase_id, sponsor_user_id, status, joined_at
                FROM enrollments WHERE user_id = $1 ORDER BY joined_at DESC"#,
         )
         .bind(user_id)
@@ -1120,9 +1067,6 @@ impl EnrollmentRepo for PgEnrollmentRepo {
 fn row_to_enrollment(row: sqlx::postgres::PgRow) -> AppResult<Enrollment> {
     let id: uuid::Uuid = row
         .try_get("id")
-        .map_err(|e| AppError::Infra(e.to_string()))?;
-    let company_id: uuid::Uuid = row
-        .try_get("company_id")
         .map_err(|e| AppError::Infra(e.to_string()))?;
     let user_id: uuid::Uuid = row
         .try_get("user_id")
@@ -1144,7 +1088,6 @@ fn row_to_enrollment(row: sqlx::postgres::PgRow) -> AppResult<Enrollment> {
         .map_err(|e| AppError::Infra(e.to_string()))?;
     Ok(Enrollment {
         id: EnrollmentId::from(id),
-        company_id: CompanyId::from(company_id),
         user_id: UserId::from(user_id),
         package_id: PackageId::from(package_id),
         purchase_id: PurchaseId::from(purchase_id),

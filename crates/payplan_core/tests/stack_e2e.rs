@@ -16,8 +16,7 @@ use payplan_core::payplan::module::{ModuleContext, ModuleResult};
 use payplan_core::payplan::registry::ModuleRegistry;
 use payplan_core::payplan::runner::{StackRunner, StateCache};
 use payplan_core::payplan::stack::{PayPlanStack, PayPlanStackStatus, StackModule};
-use payplan_core::shared::ids::{CompanyId, EnrollmentId, PackageId, PayPlanStackId, UserId};
-use rust_decimal::Decimal;
+use payplan_core::shared::ids::{EnrollmentId, PackageId, PayPlanStackId, UserId};
 use serde_json::json;
 
 fn module_config(value: serde_json::Value) -> StackModule {
@@ -30,7 +29,7 @@ fn module_config(value: serde_json::Value) -> StackModule {
     }
 }
 
-fn build_royal_stack(company_id: CompanyId) -> PayPlanStack {
+fn build_royal_stack() -> PayPlanStack {
     let mut modules = vec![];
     let mut s = module_config(json!({}));
     s.module_key = "sponsor.allocation".into();
@@ -59,7 +58,6 @@ fn build_royal_stack(company_id: CompanyId) -> PayPlanStack {
 
     PayPlanStack {
         id: PayPlanStackId::new(),
-        company_id,
         name: "Royal Flush".into(),
         version: 1,
         status: PayPlanStackStatus::Active,
@@ -68,7 +66,7 @@ fn build_royal_stack(company_id: CompanyId) -> PayPlanStack {
     }
 }
 
-fn build_binary_stack(company_id: CompanyId) -> PayPlanStack {
+fn build_binary_stack() -> PayPlanStack {
     let mut modules = vec![];
     let mut s = module_config(json!({}));
     s.module_key = "sponsor.allocation".into();
@@ -88,7 +86,7 @@ fn build_binary_stack(company_id: CompanyId) -> PayPlanStack {
     modules.push(s);
 
     let mut s =
-        module_config(json!({ "left_ratio": 1, "right_ratio": 1, "commission_percent": 10 }));
+        module_config(json!({ "left_ratio": 1, "right_ratio": 1, "payout_percent": 10 }));
     s.module_key = "binary.pairing_bonus".into();
     s.sort_order = 40;
     modules.push(s);
@@ -100,7 +98,6 @@ fn build_binary_stack(company_id: CompanyId) -> PayPlanStack {
 
     PayPlanStack {
         id: PayPlanStackId::new(),
-        company_id,
         name: "Binary".into(),
         version: 1,
         status: PayPlanStackStatus::Active,
@@ -128,7 +125,6 @@ fn registry() -> ModuleRegistry {
 }
 
 fn package_purchased_event(
-    company_id: CompanyId,
     user_id: UserId,
     package_id: PackageId,
     points: u32,
@@ -136,7 +132,6 @@ fn package_purchased_event(
 ) -> DomainEvent {
     DomainEvent {
         id: payplan_core::shared::ids::EventId::new(),
-        company_id: Some(company_id),
         event_type: EventType::PackagePurchased,
         payload: json!({
             "user_id": user_id,
@@ -150,10 +145,9 @@ fn package_purchased_event(
     }
 }
 
-fn enrollment_event(company_id: CompanyId, user_id: UserId, package_id: PackageId) -> DomainEvent {
+fn enrollment_event(user_id: UserId, package_id: PackageId) -> DomainEvent {
     DomainEvent {
         id: payplan_core::shared::ids::EventId::new(),
-        company_id: Some(company_id),
         event_type: EventType::EnrollmentCreated,
         payload: json!({
             "user_id": user_id,
@@ -167,14 +161,13 @@ fn enrollment_event(company_id: CompanyId, user_id: UserId, package_id: PackageI
 fn royal_flush_enrollment_emits_flushline_account_created() {
     let reg = registry();
     let runner = StackRunner::new(reg);
-    let company_id = CompanyId::new();
     let user_id = UserId::new();
     let pkg = PackageId::new();
-    let stack = build_royal_stack(company_id);
+    let stack = build_royal_stack();
 
-    let event = enrollment_event(company_id, user_id, pkg);
+    let event = enrollment_event(user_id, pkg);
     let agg = uuid::Uuid::now_v7();
-    let ctx = ModuleContext::new(company_id, pkg)
+    let ctx = ModuleContext::new(pkg)
         .with_aggregate(agg)
         .with_enrollment(EnrollmentId::new())
         .with_event(event.clone());
@@ -192,19 +185,17 @@ fn royal_flush_enrollment_emits_flushline_account_created() {
 fn royal_flush_graduates_after_15_points() {
     let reg = registry();
     let runner = StackRunner::new(reg);
-    let company_id = CompanyId::new();
     let user_id = UserId::new();
     let pkg = PackageId::new();
-    let stack = build_royal_stack(company_id);
+    let stack = build_royal_stack();
 
-    let event = package_purchased_event(company_id, user_id, pkg, 15, 0);
-    let ctx = ModuleContext::new(company_id, pkg)
+    let event = package_purchased_event(user_id, pkg, 15, 0);
+    let ctx = ModuleContext::new(pkg)
         .with_aggregate(uuid::Uuid::now_v7())
         .with_enrollment(EnrollmentId::new())
         .with_module_state(json!({
             "account": {
                 "id": payplan_core::shared::ids::RoyalAccountId::new(),
-                "company_id": company_id,
                 "enrollment_id": EnrollmentId::new(),
                 "owner_user_id": user_id,
                 "current_tier": "Ten",
@@ -229,22 +220,20 @@ fn royal_flush_graduates_after_15_points() {
 fn royal_flush_pot_bonus_distributes_to_qualified_user() {
     let reg = registry();
     let runner = StackRunner::new(reg);
-    let company_id = CompanyId::new();
     let user_id = UserId::new();
     let pkg = PackageId::new();
-    let stack = build_royal_stack(company_id);
+    let stack = build_royal_stack();
 
     let distribution_event = DomainEvent {
         id: payplan_core::shared::ids::EventId::new(),
-        company_id: Some(company_id),
         event_type: EventType::RoyalPotBonusDistributed,
         payload: json!({}),
         created_at: Utc::now(),
     };
-    let ctx = ModuleContext::new(company_id, pkg)
+    let ctx = ModuleContext::new(pkg)
         .with_aggregate(uuid::Uuid::now_v7())
         .with_module_state(json!({
-            "pool": "1000",
+            "pool": 1000,
             "qualifications": [{
                 "user_id": user_id,
                 "total_graduations": 1,
@@ -271,13 +260,12 @@ fn royal_flush_pot_bonus_distributes_to_qualified_user() {
 fn binary_tree_places_first_user_as_root() {
     let reg = registry();
     let runner = StackRunner::new(reg);
-    let company_id = CompanyId::new();
     let user_id = UserId::new();
     let pkg = PackageId::new();
-    let stack = build_binary_stack(company_id);
+    let stack = build_binary_stack();
 
-    let event = enrollment_event(company_id, user_id, pkg);
-    let ctx = ModuleContext::new(company_id, pkg)
+    let event = enrollment_event(user_id, pkg);
+    let ctx = ModuleContext::new(pkg)
         .with_aggregate(uuid::Uuid::now_v7())
         .with_enrollment(EnrollmentId::new())
         .with_event(event.clone());
@@ -302,18 +290,17 @@ fn binary_tree_places_first_user_as_root() {
 fn binary_tree_autobalance_places_left_then_right() {
     let reg = registry();
     let runner = StackRunner::new(reg);
-    let company_id = CompanyId::new();
     let pkg = PackageId::new();
-    let stack = build_binary_stack(company_id);
+    let stack = build_binary_stack();
 
     let root_user = UserId::new();
-    let e1 = enrollment_event(company_id, root_user, pkg);
+    let e1 = enrollment_event(root_user, pkg);
     let mut cache = StateCache::new();
     let r1 = runner
         .run(
             &stack,
             &e1,
-            &ModuleContext::new(company_id, pkg)
+            &ModuleContext::new(pkg)
                 .with_aggregate(uuid::Uuid::now_v7())
                 .with_enrollment(EnrollmentId::new())
                 .with_event(e1.clone()),
@@ -328,12 +315,12 @@ fn binary_tree_autobalance_places_left_then_right() {
         .unwrap_or_default();
 
     let u2 = UserId::new();
-    let e2 = enrollment_event(company_id, u2, pkg);
+    let e2 = enrollment_event(u2, pkg);
     let r2 = runner
         .run(
             &stack,
             &e2,
-            &ModuleContext::new(company_id, pkg)
+            &ModuleContext::new(pkg)
                 .with_aggregate(uuid::Uuid::now_v7())
                 .with_enrollment(EnrollmentId::new())
                 .with_module_state(serde_json::to_value(&tree_state).unwrap())
@@ -356,19 +343,17 @@ fn binary_tree_autobalance_places_left_then_right() {
 fn binary_pairing_emits_commission_and_ledger_entry() {
     let reg = registry();
     let runner = StackRunner::new(reg);
-    let company_id = CompanyId::new();
     let pkg = PackageId::new();
-    let stack = build_binary_stack(company_id);
+    let stack = build_binary_stack();
 
     let node_user = UserId::new();
     let cycle_event = DomainEvent {
         id: payplan_core::shared::ids::EventId::new(),
-        company_id: Some(company_id),
         event_type: EventType::BinaryCycleClosed,
         payload: json!({ "node_user_id": node_user }),
         created_at: Utc::now(),
     };
-    let ctx = ModuleContext::new(company_id, pkg)
+    let ctx = ModuleContext::new(pkg)
         .with_aggregate(uuid::Uuid::now_v7())
         .with_event(cycle_event.clone())
         .with_module_state(json!({
@@ -396,9 +381,8 @@ fn binary_pairing_emits_commission_and_ledger_entry() {
 fn binary_carryover_emits_update_event_on_cycle_close() {
     let reg = registry();
     let runner = StackRunner::new(reg);
-    let company_id = CompanyId::new();
     let pkg = PackageId::new();
-    let stack = build_binary_stack(company_id);
+    let stack = build_binary_stack();
 
     // Carryover now consumes the pairing module's `BinaryPairMatched` output
     // (which carries left/right/matched) rather than reading state that was
@@ -406,7 +390,6 @@ fn binary_carryover_emits_update_event_on_cycle_close() {
     // right=30 → unmatched left=20 carries.
     let pair_event = DomainEvent {
         id: payplan_core::shared::ids::EventId::new(),
-        company_id: Some(company_id),
         event_type: EventType::BinaryPairMatched,
         payload: json!({
             "node_user_id": UserId::new(),
@@ -416,7 +399,7 @@ fn binary_carryover_emits_update_event_on_cycle_close() {
         }),
         created_at: Utc::now(),
     };
-    let ctx = ModuleContext::new(company_id, pkg)
+    let ctx = ModuleContext::new(pkg)
         .with_aggregate(uuid::Uuid::now_v7())
         .with_event(pair_event.clone())
         .with_module_state(json!({
@@ -442,5 +425,4 @@ fn _typecheck() {
     let _: MatrixState = MatrixState::default();
     let _: PotBonusState = PotBonusState::default();
     let _: DuplicationState = DuplicationState::default();
-    let _: Decimal = Decimal::ZERO;
 }

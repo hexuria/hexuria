@@ -1,4 +1,4 @@
-use crate::shared::ids::{CompanyId, PackageId, PurchaseId, UserId};
+use crate::shared::ids::{PackageId, PurchaseId, UserId};
 use crate::shared::money::Money;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Purchase {
     pub id: PurchaseId,
-    pub company_id: CompanyId,
     pub user_id: UserId,
     pub package_id: PackageId,
     pub sponsor_user_id: Option<UserId>,

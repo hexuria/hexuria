@@ -9,8 +9,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
     provide_meta_context();
     let stylesheet = stylesheet_href(&options);
     let nonce = leptos::nonce::use_nonce();
-    if let (Some(ref nonce_str), Some(response)) =
-        (nonce.clone(), use_context::<ResponseOptions>())
+    if let (Some(ref nonce_str), Some(response)) = (nonce.clone(), use_context::<ResponseOptions>())
     {
         let policy = format!(
             "default-src 'self'; script-src 'self' 'nonce-{nonce_str}' 'wasm-unsafe-eval'; \

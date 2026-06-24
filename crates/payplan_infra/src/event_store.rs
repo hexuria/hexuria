@@ -32,12 +32,11 @@ impl EventStore for PgEventStore {
         for event in events {
             sqlx::query(
                 r#"
-                INSERT INTO event_log (id, company_id, event_type, aggregate_type, aggregate_id, payload, created_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                INSERT INTO event_log (id, event_type, aggregate_type, aggregate_id, payload, created_at)
+                VALUES ($1, $2, $3, $4, $5, $6)
                 "#,
             )
             .bind(event.id)
-            .bind(event.company_id)
             .bind(event.event_type.as_str())
             .bind(aggregate_type_for(event.event_type))
             .bind(aggregate_id_for(event))
@@ -53,7 +52,6 @@ impl EventStore for PgEventStore {
 
 fn aggregate_type_for(event_type: EventType) -> &'static str {
     match event_type {
-        EventType::CompanyCreated => "company",
         EventType::UserCreated => "user",
         EventType::CatalogItemCreated => "catalog_item",
         EventType::BillingPlanCreated => "billing_plan",

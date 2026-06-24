@@ -1,4 +1,3 @@
-use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 use crate::shared::ids::UserId;
@@ -59,10 +58,10 @@ impl RoyalQualification {
 /// Outcome of distributing a pot bonus.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoyalPotDistribution {
-    pub profit_share_total: Decimal,
-    pub per_qualified_user: Decimal,
+    pub profit_share_total: i64,
+    pub per_qualified_user: i64,
     pub qualified_user_count: u32,
-    pub top_cycler_payouts: Vec<Decimal>,
+    pub top_cycler_payouts: Vec<i64>,
 }
 
 /// Split a pool of points according to the config.
@@ -70,20 +69,19 @@ pub struct RoyalPotDistribution {
 /// Returns `None` if there are no qualified users AND no top cyclers (no distribution possible).
 #[must_use]
 pub fn distribute(
-    pool: Decimal,
+    pool: i64,
     config: &RoyalPotBonusConfig,
     qualified_users: u32,
 ) -> Option<RoyalPotDistribution> {
     debug_assert!(config.profit_share_percent + config.top_cycler_percent <= 100);
 
-    let profit_share_total =
-        pool * Decimal::from(config.profit_share_percent) / Decimal::from(100u32);
-    let top_cycler_total = pool * Decimal::from(config.top_cycler_percent) / Decimal::from(100u32);
+    let profit_share_total = pool * i64::from(config.profit_share_percent) / 100;
+    let top_cycler_total = pool * i64::from(config.top_cycler_percent) / 100;
 
     let per_qualified_user = if qualified_users > 0 {
-        profit_share_total / Decimal::from(qualified_users)
+        profit_share_total / i64::from(qualified_users)
     } else {
-        Decimal::ZERO
+        0
     };
 
     let weight_sum: u32 = config
@@ -91,13 +89,13 @@ pub fn distribute(
         .iter()
         .map(|&w| u32::from(w))
         .sum();
-    let top_cycler_payouts: Vec<Decimal> = if weight_sum == 0 {
+    let top_cycler_payouts: Vec<i64> = if weight_sum == 0 {
         vec![]
     } else {
         config
             .top_cycler_weights
             .iter()
-            .map(|&w| top_cycler_total * Decimal::from(u32::from(w)) / Decimal::from(weight_sum))
+            .map(|&w| top_cycler_total * i64::from(w) / i64::from(weight_sum))
             .collect()
     };
 
@@ -116,7 +114,6 @@ pub fn distribute(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
 
     #[test]
     fn default_config_is_75_25() {
@@ -139,22 +136,22 @@ mod tests {
     #[test]
     fn distribute_no_qualified_users() {
         let cfg = RoyalPotBonusConfig::default();
-        let d = distribute(dec!(1000), &cfg, 0).expect("some distribution");
-        assert_eq!(d.per_qualified_user, dec!(0));
+        let d = distribute(1000, &cfg, 0).expect("some distribution");
+        assert_eq!(d.per_qualified_user, 0);
         assert_eq!(d.qualified_user_count, 0);
         // top cycler weights still paid: 40% of 250 = 100, 30% = 75, 20% = 50, 10% = 25
         assert_eq!(
             d.top_cycler_payouts,
-            vec![dec!(100), dec!(75), dec!(50), dec!(25)]
+            vec![100, 75, 50, 25]
         );
     }
 
     #[test]
     fn distribute_splits_correctly() {
         let cfg = RoyalPotBonusConfig::default();
-        let d = distribute(dec!(1000), &cfg, 4).expect("some distribution");
-        assert_eq!(d.profit_share_total, dec!(750));
-        assert_eq!(d.per_qualified_user, dec!(187.5));
+        let d = distribute(1000, &cfg, 4).expect("some distribution");
+        assert_eq!(d.profit_share_total, 750);
+        assert_eq!(d.per_qualified_user, 187); // 750 / 4 = 187 (floored integer)
         assert_eq!(d.top_cycler_payouts.len(), 4);
     }
 
@@ -165,6 +162,6 @@ mod tests {
             top_cycler_percent: 0,
             top_cycler_weights: vec![],
         };
-        assert!(distribute(dec!(1000), &cfg, 0).is_none());
+        assert!(distribute(1000, &cfg, 0).is_none());
     }
 }

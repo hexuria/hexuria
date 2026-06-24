@@ -9,9 +9,9 @@ use sqlx::postgres::{PgArgumentBuffer, PgTypeInfo, PgValueRef};
 use sqlx::{Decode, Encode, Postgres, Type};
 
 use crate::shared::ids::{
-    BillingPlanId, BinaryNodeId, CatalogItemId, CompanyId, EnrollmentId, EntitlementId, EventId,
-    LedgerEntryId, PackageId, PayPlanStackId, PurchaseId, RoyalAccountId, RoyalMatrixId,
-    SubscriptionId, UserId,
+    BillingPlanId, BinaryNodeId, CatalogItemId, EnrollmentId, EntitlementId, EventId,
+    LedgerEntryId, PackageId, PayPlanStackId, ProductPayPlanAllocationId, PurchaseId,
+    RoyalAccountId, RoyalMatrixId, SubscriptionId, UserId,
 };
 
 macro_rules! sqlx_transparent {
@@ -42,8 +42,6 @@ macro_rules! sqlx_transparent {
         }
     };
 }
-
-sqlx_transparent!(CompanyId);
 sqlx_transparent!(UserId);
 sqlx_transparent!(CatalogItemId);
 sqlx_transparent!(BillingPlanId);
@@ -58,6 +56,7 @@ sqlx_transparent!(EventId);
 sqlx_transparent!(RoyalAccountId);
 sqlx_transparent!(RoyalMatrixId);
 sqlx_transparent!(BinaryNodeId);
+sqlx_transparent!(ProductPayPlanAllocationId);
 
 // Money's currency is a String, amount is Decimal. sqlx supports both natively
 // when the `rust_decimal` feature is enabled.

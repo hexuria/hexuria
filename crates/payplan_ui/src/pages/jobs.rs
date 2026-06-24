@@ -11,7 +11,7 @@ pub(crate) fn JobsPage() -> impl IntoView {
     let Some(auth) = current_user() else {
         return view! { <LoginRequired/> }.into_any();
     };
-    if auth.role != UserRole::PlatformAdmin {
+    if !auth.is_admin() {
         return view! { <Forbidden/> }.into_any();
     }
     view! {
