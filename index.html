@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Hexuria — Portable Agent Toolchain</title>
-  <meta name="description" content="Hexuria is building the Portable Agent Toolchain: infrastructure that lets AI workers acquire, verify, install, permission, and replace their own software without rebuilding the computer.">
+  <meta name="description" content="Hexuria is building the Portable Agent Toolchain: agents install portable capabilities instead of rebuilding the computer.">
   <meta name="theme-color" content="#0e1114">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -18,11 +18,9 @@
     <div class="wrap bar">
       <a class="mark" href="#top">HEXURIA</a>
       <nav aria-label="Page">
-        <a href="#problem">Problem</a>
-        <a href="#architecture">Toolchain</a>
-        <a href="#plane">Execution</a>
-        <a href="#stack">Stack</a>
-        <a href="#source">Source</a>
+        <a href="#building">Building</a>
+        <a href="#built">Built</a>
+        <a href="#ambition">Ambition</a>
       </nav>
     </div>
   </header>
@@ -31,74 +29,21 @@
     <div class="wrap hero" id="top">
       <p class="eyebrow">The Portable Agent Toolchain</p>
       <h1>Agents shouldn't just use computers. They should build their own.</h1>
-      <p class="lede">Hexuria is building the Portable Agent Toolchain that lets AI workers acquire, verify, install, permission, execute, update and replace their own software without rebuilding their entire computer.</p>
+      <p class="lede">Hexuria is building the Portable Agent Toolchain: AI workers acquire, verify, install, permission, and replace their own software. Install the capability. Do not rebuild the machine.</p>
       <div class="actions">
-        <a class="btn primary" href="#architecture">Explore the architecture</a>
+        <a class="btn primary" href="#building">What we are building</a>
         <a class="btn ghost" href="https://github.com/hexuria">View on GitHub</a>
       </div>
       <p class="under">Infrastructure for persistent AI coworkers.</p>
-
-      <div class="hierarchy" aria-label="What Hexuria is">
-        <div><strong>Hexuria</strong><span>The infrastructure.</span></div>
-        <div><strong>Portable Agent Toolchain</strong><span>The category. Capabilities an agent can own, not only call.</span></div>
-        <div><strong>Persistent AI coworkers</strong><span>The outcome. Not the product category.</span></div>
-      </div>
     </div>
 
-    <section id="problem">
+    <section id="building">
       <div class="wrap">
-        <p class="kicker">The problem</p>
-        <h2>Humans still build the computer.</h2>
-        <p class="narrow">Most agent infrastructure still looks like this. A person assembles an image, installs everything the agent might need, and hands the result over.</p>
-        <ol class="chain" aria-label="How agent computers are built today">
-          <li>Human</li>
-          <li>Build the container</li>
-          <li>Install everything the agent might need</li>
-          <li>Agent</li>
-        </ol>
-        <p class="narrow">Then the job changes. The worker needs Postgres, ffmpeg, a compiler, a document processor, another CLI, an MCP server, or an internal tool. A person edits the image, rebuilds it, redeploys, reinstalls, reconfigures, and often restarts the service.</p>
-        <p class="narrow muted">That is tolerable for a handful of agents. It is the wrong operating model for a population of specialized workers.</p>
-      </div>
-    </section>
-
-    <section id="scale">
-      <div class="wrap">
-        <p class="kicker">Why this breaks</p>
-        <h2>Specialization does not share one image.</h2>
-        <p class="narrow">Each worker can have a different job, different tools, different permissions, different models, and a different security boundary. A new capability should not mean a new machine.</p>
-        <div class="scale">
-          <article><strong>100</strong><span>Already too many images to babysit by hand.</span></article>
-          <article><strong>10,000</strong><span>Rebuilds become the job. The agents wait.</span></article>
-          <article><strong>1,000,000</strong><span>A human in the rebuild path is not an architecture.</span></article>
-        </div>
-        <p class="faint">Those figures are the scaling argument. Hexuria does not claim to operate a million agents.</p>
-        <p class="line">A million agents cannot wait for a million Docker rebuilds.</p>
-      </div>
-    </section>
-
-    <section id="insight">
-      <div class="wrap">
-        <p class="kicker">The insight</p>
-        <h2>Software for software workers.</h2>
-        <p class="narrow">People install the software their job needs. Developers install Git, compilers, databases, and CLIs. Designers install design tools. Operations teams live in CRMs and spreadsheets. AI workers will need the same specialization.</p>
-        <p class="narrow">Provisioning those environments by hand does not scale. The long-term move is an agent that can tell the difference between “I need capability X” and “rebuild my computer,” and then do this safely:</p>
-        <ol class="chain" aria-label="What owning a capability requires of the agent">
-          <li>discover</li>
-          <li>verify</li>
-          <li>request permission</li>
-          <li>install</li>
-          <li>execute</li>
-          <li>retain or remove</li>
-        </ol>
-        <p class="narrow muted">The computer becomes adaptive to the worker. That lifecycle is the product. A chat window is not.</p>
-      </div>
-    </section>
-
-    <section id="architecture">
-      <div class="wrap">
-        <p class="kicker">The toolchain</p>
-        <h2>Don't rebuild the computer. Install the capability.</h2>
-        <p class="narrow">A Portable Agent Toolchain sits on the worker’s existing harness. It is how capabilities are discovered, acquired, checked, allowed, installed, run, watched, updated, and taken away. It is not a second agent runtime.</p>
+        <p class="kicker">01 — What we are building</p>
+        <h2>A capability the worker can carry.</h2>
+        <p class="narrow">Portable means a shippable unit: identity, version, provenance, who may use it, permissions, runtime, limits, update, rollback, revoke, and a trace. It survives a model turn, a model change, a closed window, and a worker restart where that is the right semantic.</p>
+        <p class="line">The model is replaceable. The worker remains.</p>
+        <p class="narrow">One harness. Not a second runtime. The toolchain extends what that worker can acquire and run.</p>
         <ol class="lifecycle" aria-label="Capability lifecycle">
           <li>Discover</li>
           <li>Acquire</li>
@@ -108,282 +53,86 @@
           <li>Execute</li>
           <li>Observe</li>
           <li>Update</li>
-          <li class="break">then</li>
           <li>Rollback</li>
           <li>Revoke</li>
           <li>Remove</li>
         </ol>
-        <p class="faint">Capabilities should be independently shippable software. Versioned, isolated, and replaceable, without baking them into one image.</p>
-
-        <div class="split" style="margin-top:1.6rem">
-          <article class="card">
-            <h3>MCP</h3>
-            <p>Answers what tools this model can call. Useful. Hexuria uses it. A plugin can bring MCP servers.</p>
-          </article>
-          <article class="card">
-            <h3>Portable Agent Toolchain</h3>
-            <p>Answers what software this agent can own and operate. Calling a tool and owning a capability are different. Owning requires the lifecycle above.</p>
-          </article>
-        </div>
         <div class="call">
           <p>MCP tells an agent what tools it can call. The Portable Agent Toolchain tells it what software it can own.</p>
         </div>
-        <p class="narrow faint">What is on main today is narrower than this picture. OpenGrok loads agent plugins as folders of skills and MCP servers, with a trust distinction: unverified tools ask a person first. A pinned, per-account catalog install is not on main yet. Wasm and remote providers are not a shipped plane. The lifecycle is the design the repositories are growing into, not a finished product.</p>
-      </div>
-    </section>
 
-    <section id="plane">
-      <div class="wrap">
-        <p class="kicker">The execution plane</p>
-        <h2>The toolchain sits above the provider.</h2>
-        <p class="narrow">One capability router. Several execution providers. The router picks the provider the capability needs. Providers are not interchangeable, and a container does not go away because a smaller unit exists.</p>
-        <div class="plane" role="img" aria-label="The portable toolchain routes a capability to one provider. Providers are Wasmtime with WASI, Wasmer with WASIX, Box on OCI, a browser worker, local execution, or remote SSH. They are not interchangeable.">
+        <div class="plane" role="img" aria-label="The Portable Agent Toolchain routes a capability to one provider. Box is shipped. Wasmtime WASI, Wasmer WASIX, browser workers, and remote SSH are planned and not interchangeable.">
           <div class="band">Portable Agent Toolchain</div>
           <div class="arrow" aria-hidden="true">↓</div>
           <div class="band router">Capability router</div>
-          <div class="arrow" aria-hidden="true">↓ one provider, chosen for the capability</div>
+          <div class="arrow" aria-hidden="true">↓ one provider, not a rebuild</div>
           <div class="providers">
-            <div><strong>Wasmtime / WASI</strong><span>A WASI component.</span><span class="tag">Planned</span></div>
-            <div><strong>Wasmer / WASIX</strong><span>A different runtime. WASIX does not run on Wasmtime.</span><span class="tag">Planned</span></div>
-            <div><strong>Box / OCI</strong><span>A full Linux computer. Shell, files, desktop.</span><span class="tag">Shipped</span></div>
-            <div><strong>Browser worker</strong><span>WebAssembly in the page, when the capability is a page.</span><span class="tag">Planned</span></div>
-            <div><strong>Local</strong><span>On a machine the worker is allowed to use.</span><span class="tag">Partial</span></div>
-            <div><strong>Remote SSH</strong><span>Another machine, reached, not imaged into the worker.</span><span class="tag">Planned</span></div>
+            <div><strong>Box / OCI</strong><span>Full Linux computer.</span><span class="tag">Shipped</span></div>
+            <div><strong>Wasmtime / WASI</strong><span>Not Wasmer.</span><span class="tag">Planned</span></div>
+            <div><strong>Wasmer / WASIX</strong><span>Does not run on Wasmtime.</span><span class="tag">Planned</span></div>
+            <div><strong>Browser worker</strong><span>When the capability is a page.</span><span class="tag">Planned</span></div>
+            <div><strong>Local machine</strong><span>Enrolled, not a general router.</span><span class="tag">Partial</span></div>
+            <div><strong>Remote SSH</strong><span>Another machine, not a new image.</span><span class="tag">Planned</span></div>
           </div>
         </div>
-        <p class="narrow">This is not “WASM replaces Docker.” Both belong. A full computer, when the job is a computer. A composable capability, when the job is one new piece of software. Do not rebuild an entire computer when the agent only needs one new capability.</p>
-        <p class="narrow faint">OpenGrok already attaches a Docker computer per coworker and can reach a machine the person enrolled. There is no Wasmtime or Wasmer executor in these repositories. Local execution here means enrolled machines and the Box guest, not a general capability router.</p>
+        <p class="faint">Containers stay. WASM does not replace Docker. Providers are not interchangeable.</p>
       </div>
     </section>
 
-    <section id="pieces">
+    <section id="built">
       <div class="wrap">
-        <p class="kicker">A composable computer</p>
-        <h2>A base, then only the pieces the job needs.</h2>
-        <p class="narrow">The industry default is one prebuilt computer with the union of every tool any worker might touch. The other option is a base plus capabilities that can be added, removed, updated, isolated, versioned, and verified on their own.</p>
-        <div class="compare">
-          <figure class="slab">
-            <figcaption>Static image</figcaption>
-            <div class="monolith">
-              <b>Giant prebuilt computer</b>
-              <span>Browser</span>
-              <span>Terminal</span>
-              <span>Python and Node</span>
-              <span>Git</span>
-              <span>Database</span>
-              <span>Every library</span>
-              <span>Everything else, just in case</span>
-            </div>
-          </figure>
-          <figure class="kit">
-            <figcaption>Composable capabilities</figcaption>
-            <div class="base">Base</div>
-            <div class="pieces">
-              <div class="piece">Browser<small>own version</small></div>
-              <div class="piece">Terminal<small>own sandbox</small></div>
-              <div class="piece">Database<small>own lifecycle</small></div>
-              <div class="piece">Documents<small>added later</small></div>
-              <div class="piece">Git<small>swappable</small></div>
-              <div class="piece">Custom<small>verified or refused</small></div>
-            </div>
-          </figure>
-        </div>
-        <ul class="ops" aria-label="What can happen to one capability">
-          <li>Add</li><li>Remove</li><li>Update</li><li>Isolate</li><li>Version</li><li>Verify</li>
-        </ul>
-      </div>
-    </section>
-
-    <section id="portable">
-      <div class="wrap">
-        <p class="kicker">Portable</p>
-        <h2>The model is replaceable. The worker remains.</h2>
-        <p class="narrow">A capability is a shippable unit. The worker can acquire it, move it, and run it without rebuilding the whole computer. It has identity, and a lifecycle the harness can recover.</p>
-        <p class="narrow">The system should be able to say, for each capability:</p>
-        <ul class="facts">
-          <li><span>What</span><span>What is installed, and why.</span></li>
-          <li><span>Version</span><span>Which version, and where it came from.</span></li>
-          <li><span>Trust</span><span>Whether it was verified, and by what check.</span></li>
-          <li><span>Who</span><span>Which agent may use it.</span></li>
-          <li><span>Rights</span><span>Permissions, credentials, and which runtime executes it.</span></li>
-          <li><span>Limits</span><span>What it may consume.</span></li>
-          <li><span>Change</span><span>How it is updated, rolled back, or revoked.</span></li>
-          <li><span>Trace</span><span>What happened during execution.</span></li>
-        </ul>
-        <p class="narrow">A capability should survive the model turn that installed it, a change of model, a closed window, and a worker restart where that is the right semantic. It should not have to be reconstructed from the prompt.</p>
-        <p class="narrow faint">OpenGrok already keeps the harness outside the tab: turns, tool results, cancellation, retries, and replay live on the server. NativeChat is a window onto that. Extending the same record to every acquired capability is the toolchain’s job, and it is not finished.</p>
-      </div>
-    </section>
-
-    <section id="authority">
-      <div class="wrap">
-        <p class="kicker">Authority</p>
-        <h2>Autonomy without a boundary is just execution.</h2>
-        <div class="call">
-          <p>Autonomy without authority boundaries is not autonomy. It is uncontrolled execution.</p>
-        </div>
-        <p class="narrow">Before an agent acquires or runs software, something has to be able to reason about identity, provenance, filesystem, network, credentials, compute, money, a human yes, and revocation. Authorization is part of the toolchain, not a settings screen added later.</p>
-        <p class="narrow">What exists now is the harness gate, not a separate authority product. OpenGrok’s consent model is on main: block refuses, ask raises a card a person can answer, allow proceeds, and unverified plugin tools ask every time. There is no shipped product here that prices an install, escrows a credential for a new capability, or revokes one across providers.</p>
-        <p class="narrow faint">That broader authority layer is planned. It is not a repository we are willing to point at yet.</p>
-      </div>
-    </section>
-
-    <section id="verify">
-      <div class="wrap">
-        <p class="kicker">Verification</p>
-        <h2>Acquire nothing you cannot stand behind.</h2>
-        <ol class="chain" aria-label="Trust order before execution">
-          <li>Capability</li>
-          <li>Provenance</li>
-          <li>Verification</li>
-          <li>Authorization</li>
-          <li>Execution</li>
-        </ol>
-        <p class="narrow">Depending on the capability, a check might be a signature, a checksum, tests, static analysis, a security policy, fuzzing, a runtime restriction, or a person. Those are possible mechanisms. They are not all built, and a bounded check is not a proof.</p>
-        <p class="narrow"><a href="https://github.com/hexuria/impeccable-rust">impeccable-rust</a> is the verification practice in public code: an agent skill that picks a verifier for the failure that can actually happen, and reports the bounds and the blind spots. It does not mean every capability in the toolchain is signed, fuzzed, or proved.</p>
-      </div>
-    </section>
-
-    <section id="self">
-      <div class="wrap">
-        <p class="kicker">Endgame</p>
-        <h2>Agents that build their own computers.</h2>
-        <p class="narrow">Today we build computers for agents. Tomorrow agents will build the computers they need for the job.</p>
-        <div class="decide" aria-label="How a worker gets a missing capability">
-          <div class="node">Agent receives the task</div>
-          <div class="node">Determines the capabilities the job needs</div>
-          <div class="node q">Already available?</div>
-          <div class="branch">
-            <div class="node yes"><strong>Yes.</strong> Continue with what is installed.</div>
-            <div class="node no"><strong>No.</strong> <span class="path">Discover → verify → permission → install</span></div>
-          </div>
-          <div class="node">Execute</div>
-          <div class="node">Verify the result</div>
-          <div class="node">Retain, update, or remove</div>
-        </div>
-        <p class="narrow faint">This is the direction. It is not what a coworker can do unattended today.</p>
-      </div>
-    </section>
-
-    <section id="stack">
-      <div class="wrap">
-        <p class="kicker">One stack</p>
-        <h2>Pieces of one toolchain. One lifecycle.</h2>
-        <p class="narrow">OpenGrok owns the harness: the agent loop, tool calls, results, cancellation, retries, persistence, replay, permissions, failures, and state. The toolchain extends what that same worker can acquire and execute. It does not stand up a second orchestrator beside it.</p>
-        <div class="stack">
-          <div class="layer">
-            <div class="who">Hexuria</div>
-            <strong>Portable Agent Toolchain</strong>
-          </div>
-          <div class="layer">
-            <div class="who">Control plane · shipped</div>
-            <a href="https://github.com/hexuria/opengrok-server">OpenGrok</a>
-            <p class="muted">The server the coworkers live on. One Rust service for the harness, the tools, the computers, and the policy.</p>
-          </div>
-          <div class="layer">
-            <div class="who">What the harness grows</div>
-            Capability lifecycle — discover through revoke. In progress, not a finished subsystem.
-          </div>
-          <div class="layer">
-            <div class="who">Execution</div>
-            Box and enrolled machines today. Wasmtime/WASI, Wasmer/WASIX, browser workers, and remote SSH as planned providers under the same router.
-          </div>
-        </div>
-        <p class="narrow">Models provide intelligence. The toolchain gives intelligence somewhere to work. The gateway routes models. It is not the headline.</p>
-        <ul class="side">
-          <li>
-            <a href="https://github.com/hexuria/nativechat">NativeChat</a> <span class="pill ship">Shipped</span>
-            <p class="muted">The human window. Login, coworkers, turns. It does not call model providers and it does not hold API keys.</p>
-          </li>
-          <li>
-            <a href="https://github.com/hexuria/open-ai-gateway">open-ai-gateway</a> <span class="pill ship">Shipped</span>
-            <p class="muted">One door for model calls an organisation already makes. Routing and credentials. A piece of the stack.</p>
-          </li>
-          <li>
-            <a href="https://github.com/hexuria/box">Box</a> <span class="pill ship">Shipped</span>
-            <p class="muted">The full-computer provider: a Linux guest, exec and files over HTTP, a desktop. Not the control plane.</p>
-          </li>
-          <li>
-            <a href="https://github.com/hexuria/impeccable-rust">impeccable-rust</a> <span class="pill ship">Shipped</span>
-            <p class="muted">Verification skill for agent-written Rust. Honest bounds. Not a universal prover.</p>
-          </li>
-          <li>
-            <a href="https://github.com/hexuria/gpui-agent">gpui-agent</a> <span class="pill exp">Experimental</span>
-            <p class="muted">In-process control plane for GPUI apps that embed it. Semantic snapshots and scripted actions. Not a computer, and not CDP.</p>
-          </li>
-          <li>
-            <a href="https://github.com/hexuria/reverse-web-mcp">reverse-web-mcp</a> <span class="pill exp">Experimental</span>
-            <p class="muted">Web capability research: compile an app’s actions into a plan and a receipt. Not the toolchain’s web provider.</p>
-          </li>
-        </ul>
-      </div>
-    </section>
-
-    <section id="outcome">
-      <div class="wrap">
-        <p class="kicker">The outcome</p>
-        <h2>Persistent AI coworkers.</h2>
-        <p class="narrow">A coworker is what you get once the toolchain is real: a worker that keeps its tools, its computer, its permissions, and its harness when the model changes and when the window closes.</p>
-        <p class="line">One worker. Its own tools. Its own computer. Its own permissions. Its own harness.</p>
-        <p class="narrow">Persistent coworkers are the outcome. Portable capabilities are how they get there: install the piece, do not rebuild the machine. From static sandboxes to self-maintaining agent computers.</p>
-        <p class="narrow faint">NativeChat and OpenGrok already keep work on the server after the tab closes. Self-maintaining computers are still ahead of the code.</p>
-      </div>
-    </section>
-
-    <section id="source">
-      <div class="wrap">
-        <p class="kicker">Open source</p>
-        <h2>Follow the repositories, not a slogan.</h2>
-        <p class="narrow">Labels are about the repository as it is, not about the finished toolchain.</p>
+        <p class="kicker">02 — What we have built so far</p>
+        <h2>Pieces of one toolchain. Not the finished plane.</h2>
         <ul class="repos">
           <li>
             <div><a href="https://github.com/hexuria/opengrok-server">opengrok-server</a> <span class="pill ship">Shipped</span></div>
-            <p>Harness and control plane. One lifecycle.</p>
+            <p>The harness. One lifecycle for turns, tools, computers, and the consent gate.</p>
           </li>
           <li>
             <div><a href="https://github.com/hexuria/nativechat">nativechat</a> <span class="pill ship">Shipped</span></div>
-            <p>Human interface into those workers.</p>
+            <p>The human window. It does not call models or hold API keys.</p>
           </li>
           <li>
             <div><a href="https://github.com/hexuria/open-ai-gateway">open-ai-gateway</a> <span class="pill ship">Shipped</span></div>
-            <p>Model and provider routing.</p>
+            <p>Model routing. A piece, not the headline.</p>
           </li>
           <li>
             <div><a href="https://github.com/hexuria/box">box</a> <span class="pill ship">Shipped</span></div>
-            <p>Container execution provider. A full computer, on purpose.</p>
+            <p>The full-computer provider. A Linux guest, not the control plane.</p>
           </li>
           <li>
             <div><a href="https://github.com/hexuria/impeccable-rust">impeccable-rust</a> <span class="pill ship">Shipped</span></div>
-            <p>Verification practice for Rust an agent writes or reviews.</p>
+            <p>A verification skill for Rust an agent writes. Not a proof of every capability.</p>
           </li>
           <li>
             <div><a href="https://github.com/hexuria/gpui-agent">gpui-agent</a> <span class="pill exp">Experimental</span></div>
-            <p>Native GPUI integration for agents that drive an app which opted in.</p>
+            <p>In-process control for GPUI apps that embed it. Not a computer.</p>
           </li>
           <li>
             <div><a href="https://github.com/hexuria/reverse-web-mcp">reverse-web-mcp</a> <span class="pill exp">Experimental</span></div>
-            <p>Research into web capabilities with a plan and a receipt.</p>
-          </li>
-          <li>
-            <div>Wasmtime/WASI, Wasmer/WASIX, remote SSH <span class="pill plan">Planned</span></div>
-            <p>Execution targets under the router. No repository claims them yet. Not interchangeable.</p>
-          </li>
-          <li>
-            <div>Install-time authority layer <span class="pill plan">Planned</span></div>
-            <p>Beyond the harness consent gate. Not a product in this org.</p>
+            <p>Web-action research: a plan and a receipt. Not the web provider.</p>
           </li>
         </ul>
+        <p class="narrow" style="margin-top:1.3rem"><strong>Not built yet.</strong> Wasmtime/WASI, Wasmer/WASIX, browser workers, remote SSH, an install-time authority layer beyond the consent gate, and a pinned catalog install. Plugins today are folders of skills and MCP servers. Unverified tools ask a person first.</p>
+        <p class="faint">Not production-complete.</p>
       </div>
     </section>
 
-    <section class="final" id="follow">
+    <section id="ambition" class="final">
       <div class="wrap">
-        <p class="kicker">Follow the build</p>
-        <h2>We're building the software infrastructure for software workers.</h2>
-        <p class="lede">Infrastructure for software workers. The category to remember is the Portable Agent Toolchain.</p>
+        <p class="kicker">03 — Ambition</p>
+        <h2>Agents that build their own computers.</h2>
+        <p class="narrow">Today we build computers for agents. The goal is workers that build and maintain the computers the job needs, and capabilities that move from worker to worker.</p>
+        <div class="scale">
+          <article><strong>100</strong><span>Too many images to babysit.</span></article>
+          <article><strong>10,000</strong><span>Rebuilds become the job.</span></article>
+          <article><strong>1,000,000</strong><span>A human in the path is not an architecture.</span></article>
+        </div>
+        <p class="faint">A scaling argument. Not a claim that a million agents run today.</p>
+        <p class="line">A million agents cannot wait for a million Docker rebuilds.</p>
+        <p class="lede">We're building the software infrastructure for software workers.</p>
         <div class="actions">
           <a class="btn primary" href="https://github.com/hexuria">Follow the build</a>
-          <a class="btn ghost" href="#architecture">Back to the architecture</a>
         </div>
       </div>
     </section>
@@ -391,7 +140,7 @@
 
   <footer class="site">
     <div class="wrap">
-      Hexuria · Portable Agent Toolchain · <a href="https://github.com/hexuria/hexuria">this page</a>
+      Hexuria · Portable Agent Toolchain · <a href="https://hexuria.github.io/hexuria/">site</a>
     </div>
   </footer>
 </body>
