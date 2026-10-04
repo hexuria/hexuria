@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Hexuria — Durable Agent Toolchain</title>
-  <meta name="description" content="Hexuria is building the Durable Agent Toolchain: infrastructure that lets AI workers acquire, verify, install, permission, and replace their own software without rebuilding the computer.">
+  <title>Hexuria — Portable Agent Toolchain</title>
+  <meta name="description" content="Hexuria is building the Portable Agent Toolchain: infrastructure that lets AI workers acquire, verify, install, permission, and replace their own software without rebuilding the computer.">
   <meta name="theme-color" content="#0e1114">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -29,9 +29,9 @@
 
   <main id="main">
     <div class="wrap hero" id="top">
-      <p class="eyebrow">The Durable Agent Toolchain</p>
+      <p class="eyebrow">The Portable Agent Toolchain</p>
       <h1>Agents shouldn't just use computers. They should build their own.</h1>
-      <p class="lede">Hexuria is building the durable toolchain that lets AI workers acquire, verify, install, permission, execute, update and replace their own software without rebuilding their entire computer.</p>
+      <p class="lede">Hexuria is building the portable toolchain that lets AI workers acquire, verify, install, permission, execute, update and replace their own software without rebuilding their entire computer.</p>
       <div class="actions">
         <a class="btn primary" href="#architecture">Explore the architecture</a>
         <a class="btn ghost" href="https://github.com/hexuria">View on GitHub</a>
@@ -40,7 +40,7 @@
 
       <div class="hierarchy" aria-label="What Hexuria is">
         <div><strong>Hexuria</strong><span>The infrastructure.</span></div>
-        <div><strong>Durable Agent Toolchain</strong><span>The category. Capabilities an agent can own, not only call.</span></div>
+        <div><strong>Portable Agent Toolchain</strong><span>The category. Capabilities an agent can own, not only call.</span></div>
         <div><strong>Persistent AI coworkers</strong><span>The outcome. Not the product category.</span></div>
       </div>
     </div>
@@ -98,7 +98,7 @@
       <div class="wrap">
         <p class="kicker">The toolchain</p>
         <h2>Don't rebuild the computer. Install the capability.</h2>
-        <p class="narrow">A Durable Agent Toolchain sits on the worker’s existing harness. It is how capabilities are discovered, acquired, checked, allowed, installed, run, watched, updated, and taken away. It is not a second agent runtime.</p>
+        <p class="narrow">A Portable Agent Toolchain sits on the worker’s existing harness. It is how capabilities are discovered, acquired, checked, allowed, installed, run, watched, updated, and taken away. It is not a second agent runtime.</p>
         <ol class="lifecycle" aria-label="Capability lifecycle">
           <li>Discover</li>
           <li>Acquire</li>
@@ -121,12 +121,12 @@
             <p>Answers what tools this model can call. Useful. Hexuria uses it. A plugin can bring MCP servers.</p>
           </article>
           <article class="card">
-            <h3>Durable Agent Toolchain</h3>
+            <h3>Portable Agent Toolchain</h3>
             <p>Answers what software this agent can own and operate. Calling a tool and owning a capability are different. Owning requires the lifecycle above.</p>
           </article>
         </div>
         <div class="call">
-          <p>MCP tells an agent what tools it can call. The Durable Agent Toolchain tells it what software it can own.</p>
+          <p>MCP tells an agent what tools it can call. The Portable Agent Toolchain tells it what software it can own.</p>
         </div>
         <p class="narrow faint">What is on main today is narrower than this picture. OpenGrok loads agent plugins as folders of skills and MCP servers, with a trust distinction: unverified tools ask a person first. A pinned, per-account catalog install is not on main yet. Wasm and remote providers are not a shipped plane. The lifecycle is the design the repositories are growing into, not a finished product.</p>
       </div>
@@ -137,8 +137,8 @@
         <p class="kicker">The execution plane</p>
         <h2>The toolchain sits above the provider.</h2>
         <p class="narrow">One capability router. Several execution providers. The router picks the provider the capability needs. Providers are not interchangeable, and a container does not go away because a smaller unit exists.</p>
-        <div class="plane" role="img" aria-label="The durable toolchain routes a capability to one provider. Providers are Wasmtime with WASI, Wasmer with WASIX, Box on OCI, a browser worker, local execution, or remote SSH. They are not interchangeable.">
-          <div class="band">Durable Agent Toolchain</div>
+        <div class="plane" role="img" aria-label="The portable toolchain routes a capability to one provider. Providers are Wasmtime with WASI, Wasmer with WASIX, Box on OCI, a browser worker, local execution, or remote SSH. They are not interchangeable.">
+          <div class="band">Portable Agent Toolchain</div>
           <div class="arrow" aria-hidden="true">↓</div>
           <div class="band router">Capability router</div>
           <div class="arrow" aria-hidden="true">↓ one provider, chosen for the capability</div>
@@ -194,11 +194,11 @@
       </div>
     </section>
 
-    <section id="durable">
+    <section id="portable">
       <div class="wrap">
-        <p class="kicker">Durability</p>
+        <p class="kicker">Portable</p>
         <h2>The model is replaceable. The worker remains.</h2>
-        <p class="narrow">Durable does not mean “the process stays up when the laptop closes.” That is only one consequence. Durability means the working environment has identity and a recoverable lifecycle.</p>
+        <p class="narrow">A capability is a shippable unit. The worker can acquire it, move it, and run it without rebuilding the whole computer. It has identity, and a lifecycle the harness can recover.</p>
         <p class="narrow">The system should be able to say, for each capability:</p>
         <ul class="facts">
           <li><span>What</span><span>What is installed, and why.</span></li>
@@ -269,11 +269,11 @@
       <div class="wrap">
         <p class="kicker">One stack</p>
         <h2>Pieces of one toolchain. One lifecycle.</h2>
-        <p class="narrow">OpenGrok owns the durable harness: the agent loop, tool calls, results, cancellation, retries, persistence, replay, permissions, failures, and state. The toolchain extends what that same worker can acquire and execute. It does not stand up a second orchestrator beside it.</p>
+        <p class="narrow">OpenGrok owns the harness: the agent loop, tool calls, results, cancellation, retries, persistence, replay, permissions, failures, and state. The toolchain extends what that same worker can acquire and execute. It does not stand up a second orchestrator beside it.</p>
         <div class="stack">
           <div class="layer">
             <div class="who">Hexuria</div>
-            <strong>Durable Agent Toolchain</strong>
+            <strong>Portable Agent Toolchain</strong>
           </div>
           <div class="layer">
             <div class="who">Control plane · shipped</div>
@@ -325,7 +325,7 @@
         <h2>Persistent AI coworkers.</h2>
         <p class="narrow">A coworker is what you get once the toolchain is real: a worker that keeps its tools, its computer, its permissions, and its harness when the model changes and when the window closes.</p>
         <p class="line">One worker. Its own tools. Its own computer. Its own permissions. Its own harness.</p>
-        <p class="narrow">Persistence is the result of durability, not the category. From static sandboxes to self-maintaining agent computers is the distance between a demo and infrastructure for software workers.</p>
+        <p class="narrow">Persistent coworkers are the outcome. Portable capabilities are how they get there: install the piece, do not rebuild the machine. From static sandboxes to self-maintaining agent computers.</p>
         <p class="narrow faint">NativeChat and OpenGrok already keep work on the server after the tab closes. Self-maintaining computers are still ahead of the code.</p>
       </div>
     </section>
@@ -338,7 +338,7 @@
         <ul class="repos">
           <li>
             <div><a href="https://github.com/hexuria/opengrok-server">opengrok-server</a> <span class="pill ship">Shipped</span></div>
-            <p>Durable harness and control plane. One lifecycle.</p>
+            <p>Harness and control plane. One lifecycle.</p>
           </li>
           <li>
             <div><a href="https://github.com/hexuria/nativechat">nativechat</a> <span class="pill ship">Shipped</span></div>
@@ -380,7 +380,7 @@
       <div class="wrap">
         <p class="kicker">Follow the build</p>
         <h2>We're building the software infrastructure for software workers.</h2>
-        <p class="lede">Infrastructure for software workers. The category to remember is the Durable Agent Toolchain.</p>
+        <p class="lede">Infrastructure for software workers. The category to remember is the Portable Agent Toolchain.</p>
         <div class="actions">
           <a class="btn primary" href="https://github.com/hexuria">Follow the build</a>
           <a class="btn ghost" href="#architecture">Back to the architecture</a>
@@ -391,7 +391,7 @@
 
   <footer class="site">
     <div class="wrap">
-      Hexuria · Durable Agent Toolchain · <a href="https://github.com/hexuria/hexuria">this page</a>
+      Hexuria · Portable Agent Toolchain · <a href="https://github.com/hexuria/hexuria">this page</a>
     </div>
   </footer>
 </body>
