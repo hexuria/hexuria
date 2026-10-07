@@ -1,5 +1,3 @@
-[goldcoders.dev](https://goldcoders.dev) · Owned and operated by Goldcoders Corp.
-
 **The Portable Agent Toolchain**
 
 Agents shouldn't just use computers.
@@ -56,4 +54,4 @@ A million agents cannot wait for a million Docker rebuilds.
 
 We're building the software infrastructure for software workers.
 
-[Follow the build](https://github.com/hexuria)
+[Follow the build](https://x.com/codeitlikemiley) · A [Goldcoders Corp](https://goldcoders.dev) project
