@@ -3,7 +3,7 @@
 Agents shouldn't just use computers.
 They should build their own.
 
-Hexuria is building the Portable Agent Toolchain: AI workers acquire, verify, install, permission, and replace their own software. Install the capability. Do not rebuild the machine.
+We are building the Portable Agent Toolchain: AI workers acquire, verify, install, permission, and replace their own software. Install the capability. Do not rebuild the machine.
 
 ## 1. What we are building
 
