@@ -1,57 +1,142 @@
-**The Portable Agent Toolchain**
+# The Portable Agent Toolchain
 
-Agents shouldn't just use computers.
-They should build their own.
+I've been working on a problem with OpenGrok that I think will become more common as AI agents get their own computers.
 
-We are building the Portable Agent Toolchain: AI workers acquire, verify, install, permission, and replace their own software. Install the capability. Do not rebuild the machine.
+An agent can install software. But what happens to that software when we move the agent to another computer?
 
-## 1. What we are building
+Say an agent installs Rust, Node.js, GitHub CLI, and a database client. It configures everything and starts working.
 
-A capability is a shippable unit the worker can acquire, move, and run. It has identity: what, why, version, provenance, who may use it, permissions, runtime, limits, update, rollback, revoke, trace. It survives a model turn, a model change, a closed window, and a worker restart where that is the right semantic.
+Now we want to replace its container or run that same agent somewhere else.
 
-The model is replaceable. The worker remains.
+We can rebuild the Docker image, use mounted volumes, or write setup scripts. Those are valid solutions, and we already use persistent mounts in Box.
 
-Discover → Acquire → Verify → Authorize → Install → Execute → Observe → Update → Rollback / Revoke / Remove.
+But I want something different.
 
-MCP tells an agent what tools it can call. The Portable Agent Toolchain tells it what software it can own.
+**I want the agent to own its software environment independently of the computer running it.**
 
-The router sits above the provider. One provider per capability. They are not interchangeable. WASM does not replace Docker. WASIX does not run on Wasmtime.
+That's the idea behind the Portable Agent Toolchain.
 
-| Provider | |
-| --- | --- |
-| Box / OCI, a full Linux computer | Shipped |
-| Enrolled local machines | Partial |
+## What we're building
+
+The Portable Agent Toolchain is a way for AI workers to acquire, install, manage, and reuse their own software.
+
+Instead of maintaining a custom Docker image for every kind of agent, we want to let agents build up their own toolchains and attach them to compatible execution environments.
+
+For example, if a coding agent installs a particular version of Rust and a few CLI utilities, that setup should be reusable when we replace its computer.
+
+It shouldn't have to rediscover and reinstall everything.
+
+But copying binaries around isn't enough. We need to account for dependencies, operating systems, CPU architectures, permissions, and updates.
+
+Each installed capability should eventually have a record of:
+
+- What was installed, its version, and where it came from
+- Which runtimes and systems it supports
+- Which agents may use it and with what permissions
+- How it was verified and what was actually checked
+- How to update, roll back, revoke, or remove it
+- What happened when it was executed
+
+The agent could request new software, but it wouldn't get unrestricted installation rights. The existing harness and human approval system would still control what it can do.
+
+We want that software inventory to persist independently of the model, conversation, and execution environment.
+
+Changing the model shouldn't erase the worker's tools.
+
+### How this relates to MCP
+
+We're not replacing MCP.
+
+MCP lets applications expose tools, resources, and prompts to agents.
+
+The Portable Agent Toolchain addresses a different problem: the software installed in the agent's execution environment.
+
+A GitHub MCP server and the GitHub CLI are not the same thing.
+
+The CLI is a real executable with dependencies, versions, installation requirements, and access permissions.
+
+We want agents to manage software like that without requiring a new machine image every time.
+
+## Where it runs
+
+We're not building another agent harness. OpenGrok already has one.
+
+The Portable Agent Toolchain will extend that harness with software lifecycle management.
+
+The existing and proposed execution environments are:
+
+| Environment | Status |
+|---|---|
+| Local Docker / OCI | Implemented |
+| Box Linux guest | Implemented separately |
+| Enrolled local computers | Partial |
 | Wasmtime / WASI | Planned |
 | Wasmer / WASIX | Planned |
-| Browser worker | Planned |
+| Dedicated browser worker | Planned |
 | Remote SSH | Planned |
 
-One harness, not a second runtime. The toolchain extends what that worker can acquire and run.
+These environments have different capabilities.
 
-## 2. What we have built so far
+A Linux executable cannot automatically run on macOS. WASI and WASIX have different compatibility requirements. Some tools need an entire operating system; others could run as WebAssembly components.
 
-| | |
-| --- | --- |
-| [opengrok](https://github.com/hexuria/opengrok) | Shipped. The human window. It does not call models or hold API keys. |
-| [opengrok-server](https://github.com/hexuria/opengrok-server) | Shipped. The harness. One lifecycle for turns, tools, computers, and the consent gate. |
-| [open-ai-gateway](https://github.com/hexuria/open-ai-gateway) | Shipped. Model routing. A piece, not the headline. |
-| [box](https://github.com/hexuria/box) | Shipped. The full-computer provider. A Linux guest, not the control plane. |
-| [impeccable-skills](https://github.com/hexuria/impeccable-skills) | Shipped. A verification skill for an agent writes. Not a proof of every capability. |
-| [gpui-agent](https://github.com/hexuria/gpui-agent) | Experimental. In-process control for GPUI apps that embed it. Not a computer. |
+The toolchain needs to understand those differences rather than pretend every environment can run the same software.
 
+OpenGrok Server already abstracts computer operations behind a `Computer` interface, with local Docker and box.ascii.dev adapters. Our separate Box project implements a Linux guest with execution, filesystem, browser, and computer-use interfaces.
 
-**Not built yet:** Wasmtime/WASI, Wasmer/WASIX, browser workers, remote SSH, an install-time authority layer beyond the consent gate, and a pinned catalog install. Plugins today are folders of skills and MCP servers. Unverified tools ask a person first.
+The longer-term plan is to route installed capabilities to compatible environments through the existing harness.
 
-Not production-complete.
+## What we already have
 
-## 3. Ambition and goal
+This isn't starting from an empty repository.
 
-Agents that build and maintain their own computers. Capabilities portable across workers.
+We've built several pieces of the infrastructure:
 
-A hundred specialized workers is already too many images to babysit. At ten thousand, rebuilds become the job. At a million, a human in the rebuild path is not an architecture. That is the scaling argument. Hexuria does not run a million agents.
+| Project | What it does |
+|---|---|
+| [opengrok](https://github.com/hexuria/opengrok) | Native Rust/GPUI desktop interface for OpenGrok |
+| [opengrok-server](https://github.com/hexuria/opengrok-server) | Durable agent harness, tools, policies, scheduling, approvals, and computer management |
+| [open-ai-gateway](https://github.com/hexuria/open-ai-gateway) | Model routing and provider access |
+| [box](https://github.com/hexuria/box) | Linux agent computer with shell execution, files, Chromium, CDP, and computer-use APIs |
+| [impeccable-skills](https://github.com/hexuria/impeccable-skills) | Skill router for Rust and Python code verification workflows |
+| [gpui-agent](https://github.com/hexuria/gpui-agent) | Experimental semantic automation for GPUI applications |
+| [plugin-marketplace](https://github.com/hexuria/plugin-marketplace) | Catalog of plugins, including sources pinned to Git commits |
 
-A million agents cannot wait for a million Docker rebuilds.
+The existing system already has useful pieces of capability management.
 
-We're building the software infrastructure for software workers.
+OpenGrok Server has a policy and consent system. Plugins can bundle skills and MCP servers. The marketplace supports pinned source revisions. Box supports persistent workspace and browser-profile directories.
+
+However, none of that is the complete Portable Agent Toolchain.
+
+We still need general-purpose software packaging, verification, installation policies, dependency handling, compatibility checks, and a way to attach a managed toolchain to another computer.
+
+We also need reliable updates, rollback, revocation, and execution records.
+
+Those are the parts we're working toward.
+
+## Why I'm building this
+
+Today, we can give an agent a Linux computer and let it install whatever software its permissions allow.
+
+But the more specialized an agent becomes, the more software it depends on.
+
+One agent needs a Rust toolchain. Another needs Python and database utilities. Another needs accounting software and browser automation.
+
+I don't want those requirements permanently tied to the machine image each agent started with.
+
+Docker remains useful. So do volumes, containers, remote machines, and WASM runtimes.
+
+The point isn't to replace them.
+
+**The point is to stop treating the computer and the agent's installed software as the same thing.**
+
+This becomes especially important when you have many specialized agents, each maintaining a different set of tools.
+
+I want to be able to replace a computer, move an agent, or reuse its verified toolchain without rebuilding its entire working environment by hand.
+
+We're still early. The Portable Agent Toolchain isn't production-complete, and several execution providers are still only planned.
+
+But we've already built enough of the surrounding infrastructure to start tackling it.
+
+That's what we're building at Hexuria.
 
 [Follow the build](https://x.com/codeitlikemiley) · A [Goldcoders Corp](https://goldcoders.dev) project
