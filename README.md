@@ -32,13 +32,13 @@ One harness, not a second runtime. The toolchain extends what that worker can ac
 
 | | |
 | --- | --- |
+| [opengrok](https://github.com/hexuria/opengrok) | Shipped. The human window. It does not call models or hold API keys. |
 | [opengrok-server](https://github.com/hexuria/opengrok-server) | Shipped. The harness. One lifecycle for turns, tools, computers, and the consent gate. |
-| [nativechat](https://github.com/hexuria/nativechat) | Shipped. The human window. It does not call models or hold API keys. |
 | [open-ai-gateway](https://github.com/hexuria/open-ai-gateway) | Shipped. Model routing. A piece, not the headline. |
 | [box](https://github.com/hexuria/box) | Shipped. The full-computer provider. A Linux guest, not the control plane. |
-| [impeccable-rust](https://github.com/hexuria/impeccable-rust) | Shipped. A verification skill for Rust an agent writes. Not a proof of every capability. |
+| [impeccable-skills](https://github.com/hexuria/impeccable-skills) | Shipped. A verification skill for an agent writes. Not a proof of every capability. |
 | [gpui-agent](https://github.com/hexuria/gpui-agent) | Experimental. In-process control for GPUI apps that embed it. Not a computer. |
-| [reverse-web-mcp](https://github.com/hexuria/reverse-web-mcp) | Experimental. Web-action research: a plan and a receipt. Not the web provider. |
+
 
 **Not built yet:** Wasmtime/WASI, Wasmer/WASIX, browser workers, remote SSH, an install-time authority layer beyond the consent gate, and a pinned catalog install. Plugins today are folders of skills and MCP servers. Unverified tools ask a person first.
 
